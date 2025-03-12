@@ -1,0 +1,596 @@
+"""
+Scene Builder module that orchestrates:
+1. Media generation using GenerativeMediaClient
+2. TTS voiceover creation
+3. Caption generation
+4. Scene assembly
+"""
+
+import logging
+from pathlib import Path
+from typing import Dict, Optional, Union, Tuple, List, Any
+from moviepy.editor import (
+    AudioFileClip, VideoFileClip, ImageClip, CompositeVideoClip,
+    vfx, transfx, VideoClip, concatenate_audioclips
+)
+import numpy as np
+from PIL import Image
+from media_client import GenerativeMediaClient
+from tts import TextToSpeech
+from captions import create_caption_clip, overlay_caption_on_video, add_karaoke_captions_to_video
+import uuid as uuid_lib
+
+# Import our new error handling
+from error_handling import SceneBuilderError, MediaGenerationError, TTSError, retry_scene_building
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class SceneBuilder:
+    def __init__(
+        self,
+        media_client: GenerativeMediaClient,
+        tts_client: Optional[TextToSpeech] = None,
+        media_type: str = "video"  # Can be "video" or "image"
+    ):
+        """
+        Initialize the scene builder with media client and optional TTS client
+        
+        Args:
+            media_client: GenerativeMediaClient instance for generating media (video/images)
+            tts_client: Optional TextToSpeech instance. If not provided, creates a new one.
+            media_type: Type of media to generate ("video" or "image")
+        """
+        self.media_client = media_client
+        self.tts = tts_client or TextToSpeech()
+        self.media_type = media_type
+        
+        # Ensure output directories exist
+        self.output_dir = Path("generated_scenes")
+        self.output_dir.mkdir(exist_ok=True)
+    
+    @retry_scene_building
+    def build_scene(
+        self,
+        visual_text: str,
+        narration_text: str,
+        style_config: Optional[Dict] = None,
+        continue_from_scene: Optional[Dict] = None,
+        video_format: str = "landscape",
+        animation_style: str = "ken_burns",
+        **kwargs
+    ) -> Dict:
+        """
+        Builds a complete scene by orchestrating media generation, TTS, and captions.
+        Now supports split narrations marked with <SPLIT> delimiter.
+        
+        Args:
+            visual_text: The text prompt for media generation
+            narration_text: The text for TTS and captions (may contain <SPLIT> for multiple parts)
+            style_config: Configuration for media and caption styling
+            continue_from_scene: Optional scene to continue from (for video mode)
+            video_format: Format/aspect ratio of the video ("landscape", "short", "square")
+            animation_style: Animation style for image mode
+            **kwargs: Additional style parameters
+                - font: Font for captions
+                - font_size: Font size for captions
+                - color: Text color for captions
+                - highlight_color: Color for highlighted words in karaoke captions
+                - visible_lines: Number of lines to show at once in karaoke captions (default: 2)
+                - bottom_padding: Padding from bottom of screen for captions (default: 80)
+                
+        Returns:
+            Dict containing paths to generated assets and caption clips:
+            {
+                "media_path": str,
+                "media_paths": list[str],
+                "audio_paths": list[str],
+                "audio_path": str,
+                "caption_clips": list[MoviePy clip objects],  # One per narration part
+                "duration": float,
+                "media_id": str,
+                "final_clip": VideoFileClip,
+                "video_format": str
+            }
+        """
+        # Input validation
+        if not visual_text or not visual_text.strip():
+            raise ValueError("Visual text prompt cannot be empty")
+        if not narration_text or not narration_text.strip():
+            raise ValueError("Narration text cannot be empty")
+            
+        # Set default style config if none provided
+        if style_config is None:
+            style_config = {
+                "aspect_ratio": "16:9",
+                "duration": 4.0,
+                "font": "Arial-Bold",
+                "font_size": 18,
+                "color": "white",
+                "image_selection_mode": "first",
+                "animation_style": "ken_burns"
+            }
+            
+        logger.info(f"Building scene - Visual: {visual_text}")
+        logger.info(f"Narration: {narration_text}")
+        
+        try:
+            # Check if narration needs to be split
+            narration_parts = narration_text.split("<SPLIT>") if "<SPLIT>" in narration_text else [narration_text]
+            logger.info(f"Processing {len(narration_parts)} narration part(s)")
+            
+            # Step 1: Generate TTS audio for each part
+            audio_paths = []
+            audio_durations = []
+            total_duration = 0
+            
+            for i, part in enumerate(narration_parts, 1):
+                logger.info(f"Generating voiceover for part {i}...")
+                tts_result = self.tts.generate_speech(part.strip())
+                audio_path = tts_result["path"]
+                audio_paths.append(audio_path)
+                
+                # Verify audio file
+                if not Path(audio_path).exists() or Path(audio_path).stat().st_size == 0:
+                    raise TTSError(f"Generated audio file for part {i} is invalid or empty")
+                
+                # Get audio duration
+                with AudioFileClip(audio_path) as audio:
+                    duration = audio.duration
+                    audio_durations.append(duration)
+                    total_duration += duration
+                logger.info(f"Part {i} duration: {duration:.2f} seconds")
+            
+            # Step 2: Generate media
+            logger.info("Generating media...")
+            
+            # Set dimensions based on aspect ratio
+            aspect_ratio = style_config.get("aspect_ratio", "16:9")
+            if aspect_ratio == "16:9":
+                width, height = 1024, 576
+            elif aspect_ratio == "9:16":  # Short format for social media
+                width, height = 576, 1024
+            elif aspect_ratio == "1:1":   # Square format
+                width, height = 1024, 1024
+            else:
+                width, height = 1024, 576  # Default to 16:9
+            
+            media_config = {
+                "width": width,
+                "height": height,
+                "aspect_ratio": aspect_ratio
+            }
+            
+            if self.media_type == "video":
+                if continue_from_scene:
+                    media_config["start_video_id"] = continue_from_scene.get("media_id")
+                media_config["loop"] = False
+            
+            media_paths = self.media_client.generate_media(visual_text, config=media_config)
+            if not media_paths:
+                raise MediaGenerationError("No media generated")
+            
+            # Handle multiple images if in image mode
+            if self.media_type == "image" and len(media_paths) > 1:
+                selection_mode = style_config.get("image_selection_mode", "first")
+                
+                if selection_mode == "first":
+                    # Simply use the first image
+                    logger.info(f"Multiple images generated, using first of {len(media_paths)}")
+                    media_path = media_paths[0]
+                    
+                elif selection_mode == "slideshow":
+                    # Create a slideshow from all images
+                    logger.info(f"Creating slideshow from {len(media_paths)} images")
+                    from moviepy.editor import ImageSequenceClip
+                    import shutil
+                    
+                    # Create a temporary directory for the slideshow
+                    slideshow_dir = self.output_dir / "slideshows" / str(uuid_lib.uuid4())
+                    slideshow_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Copy all images to the slideshow directory
+                    slideshow_images = []
+                    for i, img_path in enumerate(media_paths):
+                        new_path = slideshow_dir / f"slide_{i}.png"
+                        shutil.copy2(img_path, new_path)
+                        slideshow_images.append(str(new_path))
+                    
+                    # Create a video from the images
+                    media_path = str(slideshow_dir / "slideshow.mp4")
+                    slideshow = ImageSequenceClip(
+                        slideshow_images,
+                        durations=[total_duration / len(media_paths)] * len(media_paths)
+                    )
+                    # Write video file
+                    slideshow.write_videofile(
+                        media_path,
+                        fps=24,
+                        audio=False
+                    )
+                    slideshow.close()
+                    
+                    # Update media type since we converted to video
+                    self.media_type = "video"
+                else:
+                    # Default to first image if mode is unknown
+                    logger.warning(f"Unknown image selection mode: {selection_mode}, using first image")
+                    media_path = media_paths[0]
+            else:
+                media_path = media_paths[0]
+            
+            # Step 3: Create base clip (either video or animated image)
+            if self.media_type == "image":
+                logger.info("Creating animated clip from image...")
+                base_clip = animate_image_clip(
+                    media_path,
+                    duration=total_duration,  # Use total duration of all parts
+                    animation_style=animation_style
+                )
+                video_path = media_path
+            else:
+                logger.info("Loading video clip...")
+                base_clip = VideoFileClip(str(media_path))
+                video_path = media_path
+            
+            # Step 4: Create caption clips for each part
+            logger.info("Creating captions...")
+            caption_clips = []
+            current_time = 0
+            
+            # Get font size from style config
+            font_size = style_config.get("font_size", 18)  # Default to 24 if not specified
+            logger.info(f"Using font size: {font_size}")
+            
+            # Only create standard caption clips if we're not using karaoke captions
+            if video_format != "short":
+                for i, (part, duration) in enumerate(zip(narration_parts, audio_durations), 1):
+                    caption_clip = create_caption_clip(
+                        text=part.strip(),
+                        duration=duration,
+                        video_height=base_clip.size[1],
+                        video_width=base_clip.size[0],
+                        font=style_config.get("font", "Arial-Bold"),
+                        font_size=font_size,
+                        color=style_config.get("color", "white")
+                    )
+                    
+                    # Set start time for this caption part
+                    caption_clip = caption_clip.set_start(current_time)
+                    caption_clips.append(caption_clip)
+                    current_time += duration
+                    
+                    logger.info(f"Created caption part {i} with duration {duration:.2f}s")
+            
+            # Step 5: Combine everything into final clip
+            logger.info("Assembling final clip...")
+            
+            # Concatenate audio clips
+            audio_clips = [AudioFileClip(path) for path in audio_paths]
+            final_audio = concatenate_audioclips(audio_clips)
+            
+            # Create composite with all caption parts (if any)
+            if caption_clips:
+                final_clip = CompositeVideoClip(
+                    [base_clip] + caption_clips,
+                    size=base_clip.size
+                )
+            else:
+                final_clip = base_clip
+            
+            # Set audio
+            final_clip = final_clip.set_audio(final_audio)
+            
+            # Add fade effects
+            final_clip = final_clip.fadein(0.5).fadeout(0.5)
+            
+            # Generate a unique ID for this media segment
+            media_id = str(uuid_lib.uuid4())
+            
+            # Clean up audio clips
+            for clip in audio_clips:
+                clip.close()
+            
+            # Check if karaoke captions should be applied (for short format)
+            use_karaoke_captions = video_format == "short"
+            
+            # Generate narration audio if narration text is provided
+            narration_audio = None
+            narration_data = None
+            if narration_text:
+                try:
+                    # Clean <SPLIT> markers from narration text before generating speech
+                    clean_narration_text = narration_text.replace("<SPLIT>", " ").strip()
+                    logger.info(f"Generating narration for: {clean_narration_text[:50]}...")
+                    narration_data = self.tts.generate_speech(clean_narration_text)
+                    narration_audio = AudioFileClip(narration_data["path"])
+                    logger.info(f"Narration generated: {narration_data['path']}")
+                except Exception as e:
+                    logger.error(f"Failed to generate narration: {e}")
+                    raise SceneBuilderError(f"Failed to generate narration: {e}")
+            
+            # Apply captions if narration is available
+            if narration_text and narration_data:
+                if use_karaoke_captions:
+                    if "word_timings" in narration_data and narration_data["word_timings"]:
+                        logger.info("Applying TikTok-style karaoke captions")
+                        # Create style dictionary for karaoke captions
+                        caption_style = {
+                            "font": kwargs.get("font", "Arial-Bold"),
+                            "font_size": kwargs.get("font_size", 60),
+                            "color": kwargs.get("color", "white"),
+                            "highlight_color": kwargs.get("highlight_color", "#ff5c5c"),
+                            "highlight_bg_color": kwargs.get("highlight_bg_color", "white"),
+                            "stroke_color": kwargs.get("stroke_color", "black"),
+                            "stroke_width": kwargs.get("stroke_width", 2),
+                            "bg_color": kwargs.get("bg_color", "rgba(0,0,0,0.5)"),
+                            "use_background": kwargs.get("use_background", False),
+                            "highlight_use_box": kwargs.get("highlight_use_box", False),
+                            "visible_lines": kwargs.get("visible_lines", 2),  # Number of lines to show at once
+                            "bottom_padding": kwargs.get("bottom_padding", 80)  # Padding from bottom of screen
+                        }
+                        
+                        print(f"DEBUG - Scene Builder caption_style: {caption_style}")
+                        print(f"DEBUG - Scene Builder highlight_use_box: {caption_style['highlight_use_box']}")
+                        print(f"DEBUG - Scene Builder kwargs: {kwargs}")
+                        
+                        # Apply karaoke captions
+                        final_clip = add_karaoke_captions_to_video(
+                            video=final_clip,
+                            word_timings=narration_data["word_timings"],
+                            style=caption_style
+                        )
+                        
+                        # Set the duration of the final clip to match the audio duration
+                        if "duration" in narration_data:
+                            final_clip = final_clip.set_duration(narration_data["duration"])
+                        else:
+                            # If duration is not in narration_data, use the audio clip duration
+                            audio_clip = AudioFileClip(narration_data["path"])
+                            final_clip = final_clip.set_duration(audio_clip.duration)
+                            audio_clip.close()
+                    else:
+                        logger.warning("Word timings not available for karaoke captions, falling back to standard captions")
+                        # Clean <SPLIT> markers from narration text
+                        clean_text = narration_text.replace("<SPLIT>", " ").strip()
+                        caption_clip = create_caption_clip(
+                            text=clean_text,
+                            duration=final_clip.duration,
+                            video_height=final_clip.h,
+                            video_width=final_clip.w,
+                            font=kwargs.get("font", "Arial-Bold"),
+                            font_size=kwargs.get("font_size", 60),
+                            color=kwargs.get("color", "white"),
+                            position="bottom"
+                        )
+                        
+                        # Overlay caption on video
+                        final_clip = overlay_caption_on_video(final_clip, caption_clip)
+                        
+                        # Set the duration of the final clip to match the audio duration
+                        if "duration" in narration_data:
+                            final_clip = final_clip.set_duration(narration_data["duration"])
+                        else:
+                            # If duration is not in narration_data, use the audio clip duration
+                            audio_clip = AudioFileClip(narration_data["path"])
+                            final_clip = final_clip.set_duration(audio_clip.duration)
+                            audio_clip.close()
+                else:
+                    logger.info("Applying standard captions")
+                    # Clean <SPLIT> markers from narration text
+                    clean_text = narration_text.replace("<SPLIT>", " ").strip()
+                    caption_clip = create_caption_clip(
+                        text=clean_text,
+                        duration=final_clip.duration,
+                        video_height=final_clip.h,
+                        video_width=final_clip.w,
+                        font=kwargs.get("font", "Arial"),
+                        font_size=kwargs.get("font_size", 24),
+                        color=kwargs.get("color", "white"),
+                        position="bottom"
+                    )
+                    
+                    # Overlay caption on video
+                    final_clip = overlay_caption_on_video(final_clip, caption_clip)
+                    
+                    # Set the duration of the final clip to match the audio duration
+                    if "duration" in narration_data:
+                        final_clip = final_clip.set_duration(narration_data["duration"])
+                    else:
+                        # If duration is not in narration_data, use the audio clip duration
+                        audio_clip = AudioFileClip(narration_data["path"])
+                        final_clip = final_clip.set_duration(audio_clip.duration)
+                        audio_clip.close()
+            
+            return {
+                "media_path": video_path,
+                "media_paths": media_paths,
+                "audio_paths": audio_paths,
+                "audio_path": audio_paths[0] if audio_paths else None,  # For backward compatibility
+                "caption_clips": caption_clips,
+                "duration": total_duration,
+                "media_id": media_id,
+                "final_clip": final_clip,
+                "video_format": video_format
+            }
+            
+        except Exception as e:
+            logger.error(f"Error building scene: {e}")
+            raise SceneBuilderError(f"Failed to build scene: {e}") from e
+            
+    def verify_output(self, scene: Dict) -> bool:
+        """
+        Verify the output of a scene build
+        
+        Args:
+            scene: Dictionary containing scene components
+            
+        Returns:
+            bool: True if all components are valid
+        """
+        try:
+            # Check media file
+            media_path = Path(scene["media_path"])
+            if not media_path.exists() or media_path.stat().st_size == 0:
+                logger.error("Media file is invalid or empty")
+                return False
+                
+            # Check audio files
+            if "audio_paths" in scene:
+                for audio_path in scene["audio_paths"]:
+                    path = Path(audio_path)
+                    if not path.exists() or path.stat().st_size == 0:
+                        logger.error(f"Audio file {audio_path} is invalid or empty")
+                        return False
+            else:
+                # Backward compatibility check
+                audio_path = Path(scene["audio_path"])
+                if not audio_path.exists() or audio_path.stat().st_size == 0:
+                    logger.error("Audio file is invalid or empty")
+                    return False
+                
+            # Check caption clips - skip this check for short format videos that use karaoke captions
+            if "video_format" in scene and scene["video_format"] == "short":
+                logger.info("Skipping caption clips check for short format video (using karaoke captions)")
+            elif not scene["caption_clips"] or any(clip.duration <= 0 for clip in scene["caption_clips"]):
+                logger.error("Caption clips are invalid")
+                return False
+                
+            # Test overlay to ensure compatibility - skip for short format videos
+            if "video_format" in scene and scene["video_format"] == "short":
+                logger.info("Skipping caption overlay test for short format video (using karaoke captions)")
+            elif self.media_type == "video":
+                with VideoFileClip(str(media_path)) as video:
+                    try:
+                        for clip in scene["caption_clips"]:
+                            overlay_caption_on_video(video, clip)
+                        logger.info("Caption overlay test successful")
+                    except Exception as e:
+                        logger.error(f"Caption overlay test failed: {e}")
+                        return False
+            else:
+                with ImageClip(str(media_path)) as img:
+                    try:
+                        for clip in scene["caption_clips"]:
+                            overlay_caption_on_video(img, clip)
+                        logger.info("Caption overlay test successful")
+                    except Exception as e:
+                        logger.error(f"Caption overlay test failed: {e}")
+                        return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"Scene verification failed: {str(e)}")
+            return False 
+
+def animate_image_clip(
+    image_path: Union[str, Path],
+    duration: float,
+    animation_style: str = "ken_burns",
+    zoom_range: Tuple[float, float] = (1.0, 1.3),
+    pan_range: Tuple[float, float] = (-0.1, 0.1)
+) -> VideoFileClip:
+    """Create an animated video clip from a static image."""
+    # Load the image using PIL first
+    pil_img = Image.open(str(image_path))
+    # Convert to RGB mode if necessary
+    if pil_img.mode != 'RGB':
+        pil_img = pil_img.convert('RGB')
+    # Convert to numpy array
+    img_array = np.array(pil_img)
+    
+    # Create ImageClip from numpy array
+    img = ImageClip(img_array)
+    
+    # Get dimensions
+    h, w = img_array.shape[:2]
+    logger.info(f"Image dimensions: h={h}, w={w}")
+    
+    if animation_style == "ken_burns":
+        # Create a Ken Burns style effect combining zoom and pan
+        def make_frame(t):
+            # Calculate progress (0 to 1)
+            progress = float(t) / float(duration)
+            
+            # Smooth easing function
+            ease = lambda x: 0.5 - np.cos(x * np.pi) / 2
+            smooth_progress = ease(progress)
+            
+            # Calculate current zoom factor
+            zoom = zoom_range[0] + (zoom_range[1] - zoom_range[0]) * smooth_progress
+            
+            # Calculate pan offsets
+            pan_x = pan_range[0] + (pan_range[1] - pan_range[0]) * smooth_progress
+            pan_y = pan_range[0] + (pan_range[1] - pan_range[0]) * smooth_progress
+            
+            # Create zoomed frame using PIL
+            zoomed_h = int(h * zoom)
+            zoomed_w = int(w * zoom)
+            
+            # Resize using PIL
+            frame_pil = Image.fromarray(img_array)
+            zoomed_pil = frame_pil.resize((zoomed_w, zoomed_h), Image.Resampling.LANCZOS)
+            zoomed = np.array(zoomed_pil)
+            
+            # Calculate position adjustments for pan
+            pos_x = int((zoomed_w - w) * (0.5 + pan_x))
+            pos_y = int((zoomed_h - h) * (0.5 + pan_y))
+            
+            # Ensure we don't go out of bounds
+            pos_x = max(0, min(pos_x, zoomed_w - w))
+            pos_y = max(0, min(pos_y, zoomed_h - h))
+            
+            # Extract the visible portion
+            visible_frame = zoomed[pos_y:pos_y + h, pos_x:pos_x + w]
+            
+            # Log only at 10% intervals
+            if int(progress * 100) % 10 == 0:
+                logger.debug(f"Ken Burns progress: {progress*100:.0f}%")
+            
+            return visible_frame
+            
+        # Create video clip with the animation
+        clip = VideoClip(make_frame, duration=duration)
+        logger.info(f"Created Ken Burns clip with duration={duration:.2f}s")
+        
+    elif animation_style == "zoom":
+        # Simple zoom effect
+        def make_frame(t):
+            progress = float(t) / float(duration)
+            zoom = zoom_range[0] + (zoom_range[1] - zoom_range[0]) * progress
+            frame = img.get_frame(0)  # Static image, so time doesn't matter
+            return vfx.resize(frame, zoom)
+            
+        clip = VideoClip(make_frame, duration=duration)
+        
+    elif animation_style == "pan":
+        # Simple pan effect
+        def make_frame(t):
+            progress = float(t) / float(duration)
+            x_offset = w * (pan_range[0] + (pan_range[1] - pan_range[0]) * progress)
+            y_offset = h * (pan_range[0] + (pan_range[1] - pan_range[0]) * progress)
+            
+            # Get the current frame
+            frame = img.get_frame(0)  # Static image, so time doesn't matter
+            
+            # Create larger frame with padding
+            padded = np.pad(frame, ((h, h), (w, w), (0, 0)), mode='edge')
+            
+            # Extract the visible portion
+            start_y = int(h + y_offset)
+            start_x = int(w + x_offset)
+            return padded[start_y:start_y + h, start_x:start_x + w]
+            
+        clip = VideoClip(make_frame, duration=duration)
+        
+    else:
+        # Default to static image if style not recognized
+        logger.warning(f"Unknown animation style: {animation_style}, using static image")
+        clip = img.set_duration(duration)
+    
+    # Add subtle fade in/out
+    clip = clip.fadein(0.5).fadeout(0.5)
+    
+    return clip 
