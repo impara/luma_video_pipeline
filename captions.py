@@ -587,69 +587,53 @@ def add_karaoke_captions_to_video(
 
 def add_captions_to_video(
     video_path: str,
-    narration_text: str,
-    duration: float,
+    captions: List[Dict],
     output_path: str,
-    font: str = "Arial",
-    font_size: int = 18,
-    color: str = "white",
     position: str = "bottom",
-    debug: bool = False
-) -> str:
-    """
-    DEPRECATED: Use SceneBuilder + VideoAssembler for multi-scene videos instead.
-    This standalone function is kept for backwards compatibility but may be removed in the future.
-    
-    Adds a caption to a video file using the narration text.
-    """
-    
-    print(f"\nAdding captions to video: {video_path}")
-    print(f"Output will be saved to: {output_path}")
-    
+    y_offset: int = 0,
+    font: str = None,
+    font_size: int = 40,
+    color: str = "white",
+    stroke_color: str = "black",
+    stroke_width: int = 2,
+    bg_color: str = None,
+    bg_opacity: float = 0.6,
+    highlight_words: bool = False,
+    highlight_color: str = "#00ff00",
+    highlight_bg_color: str = None,
+    highlight_use_box: bool = False,
+    box_color: str = "#ffffff",
+    box_opacity: float = 0.8,
+    corner_radius: int = 10,
+    padding: int = 20,
+    align: str = "center",
+    size_multiplier: float = 1.0,
+) -> None:
+    """Add captions to a video file."""
     # Load the video
     video = VideoFileClip(video_path)
-    print(f"Loaded video with size: {video.size}")
     
-    try:
-        # Create the caption using narration text
+    # Create caption clips
+    caption_clips = []
+    for cap in captions:
         caption = create_caption_clip(
-            text=narration_text,
-            duration=min(duration, video.duration),  # Ensure caption doesn't exceed video length
+            text=cap["text"],
+            duration=cap["duration"],
             video_height=video.size[1],
             video_width=video.size[0],
             font=font,
             font_size=font_size,
             color=color,
             position=position,
-            debug=debug
+            debug=False
         )
-        
-        print("\nCreated caption clip")
-        print(f"Caption size: {caption.size}")
-        print(f"Caption duration: {caption.duration}")
-        
-        # Combine video and caption using shared utility
-        print("\nCreating final composite...")
-        final_video = overlay_caption_on_video(video, caption)
-        print(f"Final video size: {final_video.size}")
-        
-        # Write the result with higher bitrate for better quality
-        print("\nWriting final video...")
-        final_video.write_videofile(
-            output_path,
-            codec='libx264',
-            audio_codec='aac',
-            fps=video.fps,  # Use same FPS as input video
-            bitrate="8000k"  # Higher bitrate for better quality
-        )
-        
-        return output_path
-        
-    finally:
-        # Clean up
-        video.close()
-        if 'final_video' in locals():
-            final_video.close()
+        caption_clips.append(caption)
+
+    # Create final composite
+    final_video = CompositeVideoClip([video] + caption_clips)
+
+    # Write the output file
+    final_video.write_videofile(output_path)
 
 def create_rounded_rectangle_clip(width, height, color, corner_radius=15):
     """

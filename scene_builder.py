@@ -403,10 +403,6 @@ class SceneBuilder:
                             "bottom_padding": kwargs.get("bottom_padding", 80)  # Padding from bottom of screen
                         }
                         
-                        print(f"DEBUG - Scene Builder caption_style: {caption_style}")
-                        print(f"DEBUG - Scene Builder highlight_use_box: {caption_style['highlight_use_box']}")
-                        print(f"DEBUG - Scene Builder kwargs: {kwargs}")
-                        
                         # Apply karaoke captions
                         final_clip = add_karaoke_captions_to_video(
                             video=final_clip,
@@ -616,10 +612,6 @@ def animate_image_clip(
             
             # Extract the visible portion
             visible_frame = zoomed[pos_y:pos_y + h, pos_x:pos_x + w]
-            
-            # Log only at 10% intervals
-            if int(progress * 100) % 10 == 0:
-                logger.debug(f"Ken Burns progress: {progress*100:.0f}%")
             
             return visible_frame
             

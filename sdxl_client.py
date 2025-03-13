@@ -219,7 +219,6 @@ class SDXLClient(GenerativeMediaClient):
         """Check if images exist in cache for given parameters."""
         # Get cache key first
         cache_key = self._get_cache_key(params)
-        logger.info(f"Looking for cache key: {cache_key}")
         
         # In dev mode, try to find any cached images
         if self.dev_mode:
@@ -233,14 +232,12 @@ class SDXLClient(GenerativeMediaClient):
                 if prompt == entry_prompt:
                     image_paths = [self._get_abs_path(p) for p in entry_data["image_paths"]]
                     if all(p.exists() for p in image_paths):
-                        logger.info(f"Found matching cache entry: {key}")
                         available_images.extend(str(p) for p in image_paths)
             
             if available_images:
                 # Return a subset matching the requested num_outputs
                 num_outputs = params.get("num_outputs", 1)
                 selected_images = available_images[:num_outputs]
-                logger.info(f"DEV MODE: Reusing {len(selected_images)} cached images")
                 return selected_images
                 
             return None
@@ -692,7 +689,7 @@ class SDXLClient(GenerativeMediaClient):
         
         Args:
             params: Model parameters
-            request_id: Unique identifier for this request
+            request_id: Unique ID for this request
             
         Returns:
             List of paths to downloaded image files
@@ -700,8 +697,6 @@ class SDXLClient(GenerativeMediaClient):
         try:
             # Call the Replicate API
             client = replicate.Client(api_token=self.api_token)
-            logger.info(f"Calling Replicate API with model: {self.MODEL_ID}")
-            logger.info(f"Parameters: {params}")
             
             # Run the model
             output = client.run(

@@ -91,7 +91,7 @@ class VideoAssembler:
             print(f"Adjusting scene {index + 1} duration from {composite.duration:.2f}s to {audio.duration:.2f}s")
             composite = composite.set_duration(audio.duration)
         
-        # Print debug info
+        # Scene details
         print(f"Scene {index + 1} details:")
         print(f"- Video duration: {base_clip.duration:.2f}s")
         print(f"- Audio duration: {audio.duration:.2f}s")

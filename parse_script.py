@@ -102,14 +102,6 @@ def parse_two_part_script(script_path: str) -> List[Tuple[str, str, Dict]]:
     
     # Log the parsed scenes
     logger.info(f"Successfully parsed {len(scenes)} scenes from {script_path}")
-    for i, (visual, narration, metadata) in enumerate(scenes, 1):
-        logger.debug(f"Scene {i}:")
-        logger.debug(f"  Visual: {visual}")
-        logger.debug(f"  Narration: {narration}")
-        if metadata.get('continue_from'):
-            logger.debug(f"  Continues from scene: {metadata['continue_from']}")
-        if metadata.get('split_narration'):
-            logger.debug(f"  Has split narration: {len(narration.split('<SPLIT>'))} parts")
     
     return scenes
 

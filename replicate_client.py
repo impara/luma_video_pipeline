@@ -145,9 +145,7 @@ class ReplicateRayClient(ReplicateClient):
         if self.dev_mode:
             # We use dynamic cache key generation here to handle dev mode
             def generate_video_func():
-                # In dev mode, log a warning and attempt to generate anyway
-                # This is a fallback in case even in dev mode we need to generate
-                logger.warning("Dev mode enabled but no cached video found, attempting generation...")
+                # Attempt generation if no cached video found
                 return self._call_replicate_api(params, request_id)
                 
             # Try to get from cache or generate if needed
@@ -187,8 +185,6 @@ class ReplicateRayClient(ReplicateClient):
         try:
             # Call the Replicate API
             client = replicate.Client(api_token=self.api_token)
-            logger.info(f"Calling Replicate API with model: {self.MODEL_ID}")
-            logger.info(f"Params: {params}")
             
             # Run the model
             output = client.run(
@@ -214,8 +210,6 @@ class ReplicateRayClient(ReplicateClient):
                 except Exception as e:
                     logger.error(f"Failed to download video {i} from {url}: {e}")
                     raise VideoGenerationError(f"Video download failed: {str(e)}")
-            
-            logger.info(f"Successfully generated and downloaded {len(video_paths)} videos")
             
             return [str(path) for path in video_paths]
             

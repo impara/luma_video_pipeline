@@ -123,9 +123,6 @@ class VoiceOptimizer:
             matches = sum(1 for pattern in patterns if re.search(pattern, normalized_text))
             content_types[content_type] = matches / len(patterns)
         
-        # Log content type scores for debugging
-        logger.info(f"Content type scores: {', '.join([f'{k}: {v:.2f}' for k, v in content_types.items()])}")
-        
         # Determine primary content type
         if content_types:
             # Sort by score and then by name for deterministic results when scores are equal
@@ -143,9 +140,6 @@ class VoiceOptimizer:
                     occurrences = normalized_text.count(keyword)
                     emotion_score += occurrences / max(1, word_count)
             emotions[emotion] = emotion_score
-        
-        # Log emotion scores for debugging
-        logger.info(f"Emotion scores: {', '.join([f'{k}: {v:.2f}' for k, v in emotions.items()])}")
         
         # Determine primary emotion
         if emotions:

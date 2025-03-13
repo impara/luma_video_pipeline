@@ -234,9 +234,6 @@ class TextToSpeech:
         else:
             key_str = f"{provider_prefix}{text}|{voice}"
             
-        # Log the key for debugging
-        logger.debug(f"Generated cache key for text: '{text[:30]}...' with voice: {voice}")
-            
         return hashlib.md5(key_str.encode()).hexdigest()
         
     def _get_cached_audio(self, cache_key: str) -> Optional[Dict]:

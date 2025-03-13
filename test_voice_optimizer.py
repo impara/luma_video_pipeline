@@ -16,51 +16,36 @@ logger = logging.getLogger(__name__)
 
 def test_voice_optimizer():
     """Test the voice optimizer with different types of content."""
-    # Initialize the voice optimizer
     optimizer = VoiceOptimizer()
     
-    # Test texts representing different content types and emotions
     test_texts = {
-        "educational": "In this tutorial, we'll learn how to build a neural network from scratch. Understanding the fundamentals of deep learning is essential for anyone interested in AI.",
-        
-        "storytelling": "Once upon a time in a distant galaxy, a brave explorer discovered a hidden planet. The world was filled with strange creatures and beautiful landscapes.",
-        
-        "promotional": "Introducing our revolutionary new product! This amazing innovation will change your life forever. Don't miss this incredible limited-time offer!",
-        
-        "informational": "Recent studies have shown that regular exercise can significantly reduce the risk of heart disease. The data indicates a 30% decrease in cardiovascular events.",
-        
-        "inspirational": "Never give up on your dreams! With passion and perseverance, you can achieve anything you set your mind to. Your future is limited only by your imagination.",
-        
-        "dialogue": "\"What are you doing here?\" she asked. \"I've been waiting for you,\" he replied with a smile. \"We need to talk about what happened yesterday.\""
+        "educational": "Learn how to code in Python with this step-by-step tutorial...",
+        "storytelling": "Once upon a time in a magical forest...",
+        "promotional": "Don't miss this amazing limited-time offer...",
+        "informational": "Recent studies have shown that...",
+        "inspirational": "You have the power to achieve your dreams..."
     }
     
-    # Analyze each text and print the results
-    print("\n=== VOICE OPTIMIZER ANALYSIS ===\n")
-    
     for content_type, text in test_texts.items():
-        print(f"\n--- {content_type.upper()} TEXT ---")
-        print(f"Text: {text[:100]}...")
-        
-        # Analyze the text
+        # Analyze text
         analysis = optimizer.analyze_text(text)
         
-        # Print key analysis results
-        print(f"Primary content type: {analysis['primary_content_type']}")
-        print(f"Primary emotion: {analysis['primary_emotion']}")
-        print(f"Complexity score: {analysis['complexity_score']:.2f}")
-        print(f"Word count: {analysis['word_count']}")
-        print(f"Has dialogue: {analysis['has_dialogue']}")
-        
-        # Get optimized voice parameters
+        # Get optimized parameters
         params = optimizer.optimize_voice_parameters(text)
         
-        # Print optimized parameters
-        print("\nOptimized Voice Parameters:")
-        print(f"Voice: {params['voice_name']}")
-        print(f"Stability: {params['stability']:.2f}")
-        print(f"Style: {params['style']:.2f}")
-        print(f"Model: {params['model']}")
-        print("-" * 50)
+        # Verify analysis results
+        assert isinstance(analysis, dict)
+        assert "primary_content_type" in analysis
+        assert "primary_emotion" in analysis
+        assert "complexity_score" in analysis
+        
+        # Verify voice parameters
+        assert isinstance(params, dict)
+        assert "voice_name" in params
+        assert "stability" in params
+        assert "style" in params
+        assert 0 <= params["stability"] <= 1
+        assert 0 <= params["style"] <= 1
 
 def test_tts_with_optimizer():
     """Test the TextToSpeech class with voice optimization."""

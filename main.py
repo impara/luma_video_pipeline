@@ -301,20 +301,16 @@ def process_script(args: argparse.Namespace, scene_builder: SceneBuilder, assemb
             print(f"Visual prompt: {visual_prompt}")
             print(f"Narration: {narration_text}")
             
-            # Check if this scene continues from a previous one
-            continue_from = None
-            if metadata.get('continue_from') and args.media_type == "video":
-                prev_idx = metadata['continue_from']
-                if prev_idx in scene_lookup:
-                    continue_from = scene_lookup[prev_idx]
-                    print(f"Continuing from scene {prev_idx}")
+            if metadata.get("continue_from") is not None:
+                prev_idx = metadata["continue_from"]
+                print(f"Continuing from scene {prev_idx}")
             
             # Generate scene (media + audio + captions)
             scene = scene_builder.build_scene(
                 visual_text=visual_prompt,
                 narration_text=narration_text,
                 style_config=style_config,
-                continue_from_scene=continue_from,
+                continue_from_scene=metadata.get('continue_from'),
                 video_format=args.video_format,
                 animation_style=args.animation_style,
                 highlight_color=args.highlight_color,
@@ -333,7 +329,7 @@ def process_script(args: argparse.Namespace, scene_builder: SceneBuilder, assemb
                 print(f"- Additional media: {scene['media_paths'][1:]}")
             print(f"- Audio: {scene['audio_path']}")
             print(f"- Duration: {scene['duration']:.2f}s")
-            if continue_from:
+            if metadata.get("continue_from") is not None:
                 print(f"- Continued from: Scene {metadata['continue_from']}")
             
             # Verify scene components
@@ -356,13 +352,6 @@ def process_script(args: argparse.Namespace, scene_builder: SceneBuilder, assemb
         print("\nVideo details:")
         print(f"- Total scenes: {len(scenes)}")
         print(f"- Output path: {final_path}")
-        print("\nScene breakdown:")
-        for i, (visual, narration, metadata) in enumerate(scene_pairs, 1):
-            print(f"\nScene {i}:")
-            print(f"- Visual: {visual}")
-            print(f"- Narration: {narration}")
-            if metadata.get('continue_from'):
-                print(f"- Continues from: Scene {metadata['continue_from']}")
         
     except Exception as e:
         print(f"\nError: {str(e)}")
@@ -434,7 +423,6 @@ def main():
             args.use_background = preset["use_background"]
             if "highlight_use_box" in preset:
                 args.highlight_use_box = preset["highlight_use_box"]
-                print(f"DEBUG - Setting highlight_use_box from preset: {args.highlight_use_box}")
             args.visible_lines = preset["visible_lines"]
             args.bottom_padding = preset["bottom_padding"]
         
@@ -455,8 +443,6 @@ def main():
             "visible_lines": args.visible_lines,
             "bottom_padding": args.bottom_padding
         }
-        
-        print(f"DEBUG - Final highlight_use_box value: {style_config['highlight_use_box']}")
         
         print("\n=== Starting Media Generation Pipeline ===")
         if config.is_dev_mode and args.media_type == "video":
