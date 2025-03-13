@@ -29,6 +29,9 @@ class Config:
         self.replicate_token = os.getenv("REPLICATE_API_TOKEN")
         self.elevenlabs_token = os.getenv("ELEVENLABS_API_KEY")
         
+        # UnrealSpeech API token (optional if using ElevenLabs)
+        self.unrealspeech_token = os.getenv("API_KEY")
+        
         # Optional development flags
         self.dev_mode = os.getenv("VIDEO_PIPELINE_DEV_MODE", "").lower() in ("true", "1", "yes")
         
@@ -41,8 +44,10 @@ class Config:
         
         if not self.replicate_token:
             missing.append("REPLICATE_API_TOKEN")
-        if not self.elevenlabs_token:
-            missing.append("ELEVENLABS_API_KEY")
+        
+        # Either ElevenLabs or UnrealSpeech API key is required
+        if not self.elevenlabs_token and not self.unrealspeech_token:
+            missing.append("ELEVENLABS_API_KEY or API_KEY (for UnrealSpeech)")
             
         if missing:
             raise ConfigError(

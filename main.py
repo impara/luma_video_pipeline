@@ -45,6 +45,9 @@ Examples:
   
   # Configure caption paging system for longer narrations:
   python main.py --media-type image --script-file script.txt --video-format short --style tiktok_neon --visible-lines 3 --bottom-padding 100
+  
+  # Use UnrealSpeech for TTS instead of ElevenLabs (always uses 'Daniel' voice):
+  python main.py --media-type video --script-file script.txt --tts-provider unrealspeech
 """
     )
     
@@ -172,6 +175,22 @@ Examples:
         type=int,
         default=80,
         help="Padding from bottom of screen for captions (in pixels)"
+    )
+    
+    # TTS options
+    tts_group = parser.add_argument_group("Text-to-Speech options")
+    tts_group.add_argument(
+        "--tts-provider",
+        type=str,
+        choices=["elevenlabs", "unrealspeech"],
+        default="elevenlabs",
+        help="TTS provider to use (elevenlabs or unrealspeech). Always uses 'Daniel' voice."
+    )
+    
+    tts_group.add_argument(
+        "--disable-smart-voice",
+        action="store_true",
+        help="Disable smart voice parameter optimization (voice is always 'Daniel')"
     )
     
     return parser
@@ -385,7 +404,14 @@ def main():
             print("\nUsing SDXL model for image generation")
         
         # Initialize other components
-        tts = TextToSpeech(api_key=config.elevenlabs_token)
+        tts = TextToSpeech(
+            api_key=config.elevenlabs_token if args.tts_provider == "elevenlabs" else config.unrealspeech_token,
+            use_smart_voice=not args.disable_smart_voice,
+            provider=args.tts_provider
+        )
+        print(f"\nUsing {args.tts_provider.capitalize()} TTS provider with 'Daniel' voice")
+        print(f"Smart voice parameter optimization: {'Disabled' if args.disable_smart_voice else 'Enabled'}")
+        
         scene_builder = SceneBuilder(
             media_client=media_client,
             tts_client=tts,
@@ -436,6 +462,8 @@ def main():
         if config.is_dev_mode and args.media_type == "video":
             print("Running in DEVELOPMENT MODE - Using cached videos only")
         print(f"Media type: {args.media_type}")
+        print(f"TTS provider: {args.tts_provider}")
+        print(f"Smart voice optimization: {'disabled' if args.disable_smart_voice else 'enabled'}")
         print(f"Video format: {args.video_format} ({style_config['aspect_ratio']})")
         if args.media_type == "image":
             print(f"Animation style: {args.animation_style}")

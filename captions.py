@@ -468,7 +468,7 @@ def create_karaoke_captions(
                             margin_x = 15
                             margin_y = 10
                             box_width = int(word_width + 1.8 * margin_x)
-                            box_height = int(font_size * 1.0)
+                            box_height = int(font_size * 1.25)
                             
                             box = create_rounded_rectangle_clip(
                                 width=box_width,
@@ -477,7 +477,7 @@ def create_karaoke_captions(
                                 corner_radius=box_height // 2
                             )
                             
-                            box = box.set_position((current_x - margin_x, y_position + font_size/4.0))
+                            box = box.set_position((current_x - margin_x, y_position + font_size/4.0 - (box_height - int(font_size * 1.0))/2))
                             box = box.set_start(overlap_start).set_end(overlap_end)
                             
                             shadow_text = TextClip(word, 

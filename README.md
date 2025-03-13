@@ -12,7 +12,7 @@ Combined with ElevenLabs for text-to-speech voiceovers and automatic caption ove
 - Dual-mode media generation:
   - Video mode: Generate AI videos using Replicate Ray model
   - Image mode: Generate SDXL images with dynamic animations
-- Text-to-speech voiceovers using ElevenLabs
+- Text-to-speech voiceovers using ElevenLabs or UnrealSpeech
 - Automatic caption generation and overlay
 - TikTok-style karaoke captions for short-form videos
 - Multi-scene video assembly with transitions
@@ -20,6 +20,8 @@ Combined with ElevenLabs for text-to-speech voiceovers and automatic caption ove
 - Local caching of generated content
 - Ken Burns and other animation effects for images
 - Modular architecture with centralized caching and error handling
+- Consistent "Daniel" voice with smart parameter optimization
+- Improved caption synchronization for numeric references
 
 ## Architecture
 
@@ -182,6 +184,7 @@ python main.py \
 - Consider using stroke outlines for better visibility
 - Use the paging system for longer narrations
 - Adjust visible lines (2-3 recommended) for optimal viewing
+- Numeric references (like "99:7-8") are handled with special timing to ensure proper synchronization
 
 #### Caption Paging System
 
@@ -392,3 +395,30 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Text-to-Speech Features
+
+The pipeline includes advanced TTS capabilities:
+
+- **Consistent Voice**: Always uses the "Daniel" voice for a unified experience
+- **Smart Parameter Optimization**: Automatically adjusts voice parameters based on content type
+- **Multiple TTS Providers**: Supports both ElevenLabs and UnrealSpeech
+- **Improved Word Timing**: Special handling for numeric references ensures captions stay in sync with audio
+- **Caching System**: Avoids redundant TTS API calls for identical text
+- **Word-Level Timing**: Provides precise timing data for karaoke captions
+
+To use a specific TTS provider:
+
+```bash
+# Use ElevenLabs (default)
+python main.py --media-type video --script-file script.txt --tts-provider elevenlabs
+
+# Use UnrealSpeech
+python main.py --media-type video --script-file script.txt --tts-provider unrealspeech
+```
+
+To disable smart voice parameter optimization:
+
+```bash
+python main.py --media-type video --script-file script.txt --disable-smart-voice
+```

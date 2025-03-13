@@ -32,7 +32,8 @@ class SceneBuilder:
         self,
         media_client: GenerativeMediaClient,
         tts_client: Optional[TextToSpeech] = None,
-        media_type: str = "video"  # Can be "video" or "image"
+        media_type: str = "video",  # Can be "video" or "image"
+        use_smart_voice: bool = True  # Enable smart voice by default
     ):
         """
         Initialize the scene builder with media client and optional TTS client
@@ -41,14 +42,18 @@ class SceneBuilder:
             media_client: GenerativeMediaClient instance for generating media (video/images)
             tts_client: Optional TextToSpeech instance. If not provided, creates a new one.
             media_type: Type of media to generate ("video" or "image")
+            use_smart_voice: Whether to use smart voice optimization
         """
         self.media_client = media_client
-        self.tts = tts_client or TextToSpeech()
+        self.tts = tts_client or TextToSpeech(use_smart_voice=use_smart_voice)
         self.media_type = media_type
+        self.use_smart_voice = use_smart_voice
         
         # Ensure output directories exist
         self.output_dir = Path("generated_scenes")
         self.output_dir.mkdir(exist_ok=True)
+        
+        logger.info(f"SceneBuilder initialized with media_type={media_type}, use_smart_voice={use_smart_voice}")
     
     @retry_scene_building
     def build_scene(
@@ -125,9 +130,26 @@ class SceneBuilder:
             audio_durations = []
             total_duration = 0
             
+            # Store word timings for all parts
+            all_word_timings = []
+            combined_duration = 0
+            
+            # Store TTS results for reuse
+            tts_results = {}
+            
             for i, part in enumerate(narration_parts, 1):
-                logger.info(f"Generating voiceover for part {i}...")
-                tts_result = self.tts.generate_speech(part.strip())
+                part_text = part.strip()
+                logger.info(f"Generating voiceover for part {i}: '{part_text[:50]}...'")
+                
+                # Use smart voice optimization based on narration content
+                tts_result = self.tts.generate_speech(
+                    part_text,
+                    use_smart_voice=self.use_smart_voice
+                )
+                
+                # Store the result for potential reuse
+                tts_results[part_text] = tts_result
+                
                 audio_path = tts_result["path"]
                 audio_paths.append(audio_path)
                 
@@ -141,6 +163,14 @@ class SceneBuilder:
                     audio_durations.append(duration)
                     total_duration += duration
                 logger.info(f"Part {i} duration: {duration:.2f} seconds")
+                
+                # Adjust word timings to account for previous parts
+                if "word_timings" in tts_result:
+                    adjusted_timings = []
+                    for word, start, end in tts_result["word_timings"]:
+                        adjusted_timings.append((word, start + combined_duration, end + combined_duration))
+                    all_word_timings.extend(adjusted_timings)
+                    combined_duration += duration
             
             # Step 2: Generate media
             logger.info("Generating media...")
@@ -300,15 +330,57 @@ class SceneBuilder:
             narration_data = None
             if narration_text:
                 try:
-                    # Clean <SPLIT> markers from narration text before generating speech
-                    clean_narration_text = narration_text.replace("<SPLIT>", " ").strip()
-                    logger.info(f"Generating narration for: {clean_narration_text[:50]}...")
-                    narration_data = self.tts.generate_speech(clean_narration_text)
-                    narration_audio = AudioFileClip(narration_data["path"])
-                    logger.info(f"Narration generated: {narration_data['path']}")
+                    # Instead of regenerating the entire narration, use the already generated parts
+                    # Create a combined audio file if needed
+                    if len(audio_paths) > 1:
+                        logger.info("Combining audio parts for full narration...")
+                        audio_clips = [AudioFileClip(path) for path in audio_paths]
+                        combined_audio = concatenate_audioclips(audio_clips)
+                        
+                        # Generate a unique filename for the combined audio
+                        combined_filename = f"voiceover_combined_{uuid_lib.uuid4()}.mp3"
+                        combined_path = self.output_dir / combined_filename
+                        combined_audio.write_audiofile(str(combined_path))
+                        
+                        # Clean up individual audio clips
+                        for clip in audio_clips:
+                            clip.close()
+                        
+                        narration_audio = AudioFileClip(str(combined_path))
+                        
+                        # Create narration data structure similar to what generate_speech would return
+                        narration_data = {
+                            "path": str(combined_path),
+                            "word_timings": all_word_timings,
+                            "duration": combined_duration
+                        }
+                    else:
+                        # If there's only one part, use it directly
+                        narration_audio = AudioFileClip(audio_paths[0])
+                        
+                        # Reuse the first TTS result instead of regenerating it
+                        first_part = narration_parts[0].strip()
+                        if first_part in tts_results:
+                            logger.info(f"Reusing existing TTS result for single part")
+                            tts_result = tts_results[first_part]
+                        else:
+                            # This should never happen since we already generated all parts
+                            logger.warning(f"TTS result not found for part, regenerating")
+                            tts_result = self.tts.generate_speech(
+                                first_part,
+                                use_smart_voice=self.use_smart_voice
+                            )
+                        
+                        narration_data = {
+                            "path": tts_result["path"],
+                            "word_timings": tts_result.get("word_timings", []),
+                            "duration": audio_durations[0]
+                        }
+                    
+                    logger.info(f"Narration prepared: {narration_data['path']}")
                 except Exception as e:
-                    logger.error(f"Failed to generate narration: {e}")
-                    raise SceneBuilderError(f"Failed to generate narration: {e}")
+                    logger.error(f"Failed to prepare narration: {e}")
+                    raise SceneBuilderError(f"Failed to prepare narration: {e}")
             
             # Apply captions if narration is available
             if narration_text and narration_data:
