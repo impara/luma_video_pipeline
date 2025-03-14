@@ -107,7 +107,8 @@ class VideoAssembler:
         scenes: List[Dict],
         output_path: str,
         fps: int = 24,  # Changed default to 24 fps to match source videos
-        transition_duration: float = 0.5  # Duration for cross-dissolve transitions
+        transition_duration: float = 0.5,  # Duration for cross-dissolve transitions
+        optimize_for_youtube: bool = True  # New parameter to optimize for YouTube
     ) -> str:
         """
         Assembles multiple scenes into a final video with smooth transitions.
@@ -117,6 +118,7 @@ class VideoAssembler:
             output_path: Path where to save the final video
             fps: Frames per second for the output video (default: 24)
             transition_duration: Duration of cross-dissolve transitions between scenes
+            optimize_for_youtube: Whether to optimize settings for YouTube (default: True)
         
         Returns:
             str: Path to the final assembled video
@@ -197,14 +199,47 @@ class VideoAssembler:
             if not output_path.endswith('.mp4'):
                 output_path += '.mp4'
             
-            # Write final video with high quality settings
+            # Determine optimal settings based on video format and YouTube standards
+            if optimize_for_youtube:
+                # Get video dimensions to determine format
+                width, height = final_video.size
+                
+                # Determine video format based on aspect ratio
+                if width > height:  # Landscape format
+                    format_name = "YouTube Landscape"
+                    # YouTube recommends 8-12 Mbps for 1080p landscape
+                    video_bitrate = "10000k"
+                elif width < height:  # Short/vertical format
+                    format_name = "YouTube Shorts"
+                    # YouTube Shorts can use slightly lower bitrate (6-9 Mbps)
+                    video_bitrate = "8000k"
+                else:  # Square format
+                    format_name = "Square"
+                    # Use a middle-ground bitrate for square format
+                    video_bitrate = "9000k"
+                
+                # Set audio bitrate based on YouTube recommendations
+                audio_bitrate = "192k"  # YouTube recommends at least 128k, we use 192k for better quality
+                
+                print(f"\nOptimizing for {format_name} format:")
+                print(f"- Video dimensions: {width}x{height}")
+                print(f"- Video bitrate: {video_bitrate}")
+                print(f"- Audio bitrate: {audio_bitrate}")
+                print(f"- FPS: {fps}")
+            else:
+                # Use default high quality settings
+                video_bitrate = "8000k"
+                audio_bitrate = "160k"
+            
+            # Write final video with optimized settings
             print(f"\nWriting final video to {output_path}...")
             final_video.write_videofile(
                 output_path,
                 fps=fps,  # Using specified fps (default 24)
                 codec='libx264',
                 audio_codec='aac',
-                bitrate="8000k",  # High bitrate for better quality
+                bitrate=video_bitrate,  # Optimized bitrate based on format
+                audio_bitrate=audio_bitrate,  # Explicit audio bitrate
                 threads=4,        # Use multiple threads
                 preset='slow'     # Better compression
             )

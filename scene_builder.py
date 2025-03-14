@@ -177,19 +177,38 @@ class SceneBuilder:
             
             # Set dimensions based on aspect ratio
             aspect_ratio = style_config.get("aspect_ratio", "16:9")
-            if aspect_ratio == "16:9":
-                width, height = 1024, 576
-            elif aspect_ratio == "9:16":  # Short format for social media
-                width, height = 576, 1024
-            elif aspect_ratio == "1:1":   # Square format
-                width, height = 1024, 1024
+            
+            # Use YouTube-optimized resolutions by default
+            youtube_optimized = style_config.get("youtube_optimized", True)
+            
+            if youtube_optimized:
+                # Use YouTube-optimized resolutions
+                if aspect_ratio == "16:9":
+                    width, height = 1920, 1080  # Full HD for landscape YouTube videos
+                elif aspect_ratio == "9:16":  # Short format
+                    width, height = 1080, 1920  # Full HD for YouTube Shorts
+                elif aspect_ratio == "1:1":   # Square format
+                    width, height = 1080, 1080  # 1080x1080 for square videos
+                else:
+                    width, height = 1920, 1080  # Default to 16:9 Full HD
+                
+                logger.info(f"Using YouTube-optimized resolution: {width}x{height}")
             else:
-                width, height = 1024, 576  # Default to 16:9
+                # Use original lower resolutions
+                if aspect_ratio == "16:9":
+                    width, height = 1024, 576
+                elif aspect_ratio == "9:16":  # Short format
+                    width, height = 576, 1024
+                elif aspect_ratio == "1:1":   # Square format
+                    width, height = 1024, 1024
+                else:
+                    width, height = 1024, 576  # Default to 16:9
             
             media_config = {
                 "width": width,
                 "height": height,
-                "aspect_ratio": aspect_ratio
+                "aspect_ratio": aspect_ratio,
+                "youtube_optimized": youtube_optimized
             }
             
             if self.media_type == "video":
@@ -266,32 +285,12 @@ class SceneBuilder:
             
             # Step 4: Create caption clips for each part
             logger.info("Creating captions...")
-            caption_clips = []
-            current_time = 0
-            
-            # Get font size from style config
             font_size = style_config.get("font_size", 18)  # Default to 24 if not specified
             logger.info(f"Using font size: {font_size}")
             
-            # Only create standard caption clips if we're not using karaoke captions
-            if video_format != "short":
-                for i, (part, duration) in enumerate(zip(narration_parts, audio_durations), 1):
-                    caption_clip = create_caption_clip(
-                        text=part.strip(),
-                        duration=duration,
-                        video_height=base_clip.size[1],
-                        video_width=base_clip.size[0],
-                        font=style_config.get("font", "Arial-Bold"),
-                        font_size=font_size,
-                        color=style_config.get("color", "white")
-                    )
-                    
-                    # Set start time for this caption part
-                    caption_clip = caption_clip.set_start(current_time)
-                    caption_clips.append(caption_clip)
-                    current_time += duration
-                    
-                    logger.info(f"Created caption part {i} with duration {duration:.2f}s")
+            # We're now using karaoke captions for all formats, so we don't need to create standard captions
+            caption_clips = []
+            current_time = 0
             
             # Step 5: Combine everything into final clip
             logger.info("Assembling final clip...")
@@ -322,8 +321,8 @@ class SceneBuilder:
             for clip in audio_clips:
                 clip.close()
             
-            # Check if karaoke captions should be applied (for short format)
-            use_karaoke_captions = video_format == "short"
+            # Apply karaoke captions for all video formats
+            use_karaoke_captions = True
             
             # Generate narration audio if narration text is provided
             narration_audio = None
@@ -518,35 +517,12 @@ class SceneBuilder:
                     logger.error("Audio file is invalid or empty")
                     return False
                 
-            # Check caption clips - skip this check for short format videos that use karaoke captions
-            if "video_format" in scene and scene["video_format"] == "short":
-                logger.info("Skipping caption clips check for short format video (using karaoke captions)")
-            elif not scene["caption_clips"] or any(clip.duration <= 0 for clip in scene["caption_clips"]):
-                logger.error("Caption clips are invalid")
-                return False
-                
-            # Test overlay to ensure compatibility - skip for short format videos
-            if "video_format" in scene and scene["video_format"] == "short":
-                logger.info("Skipping caption overlay test for short format video (using karaoke captions)")
-            elif self.media_type == "video":
-                with VideoFileClip(str(media_path)) as video:
-                    try:
-                        for clip in scene["caption_clips"]:
-                            overlay_caption_on_video(video, clip)
-                        logger.info("Caption overlay test successful")
-                    except Exception as e:
-                        logger.error(f"Caption overlay test failed: {e}")
-                        return False
-            else:
-                with ImageClip(str(media_path)) as img:
-                    try:
-                        for clip in scene["caption_clips"]:
-                            overlay_caption_on_video(img, clip)
-                        logger.info("Caption overlay test successful")
-                    except Exception as e:
-                        logger.error(f"Caption overlay test failed: {e}")
-                        return False
-                
+            # Check caption clips - skip this check for videos using karaoke captions
+            logger.info("Skipping caption clips check (using karaoke captions)")
+            
+            # Test overlay to ensure compatibility - skip for videos using karaoke captions
+            logger.info("Skipping caption overlay test (using karaoke captions)")
+            
             return True
             
         except Exception as e:

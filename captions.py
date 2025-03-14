@@ -568,6 +568,33 @@ def add_karaoke_captions_to_video(
     # Get video dimensions
     width, height = video.size
     
+    # Adjust styling based on video format
+    if width == height:  # Square format
+        # If bottom_padding is at the default value (80 or 150), adjust it for square format
+        if style.get("bottom_padding") in [80, 150]:
+            # Use a smaller padding for square format since there's less vertical space
+            style["bottom_padding"] = 100
+            
+        # Adjust font size for square format if using default values
+        if style.get("font_size") in [70, 100]:
+            # Reduce font size slightly for square format
+            style["font_size"] = int(style.get("font_size") * 0.85)
+    elif width > height:  # Landscape format
+        # For landscape format, adjust font size and bottom padding
+        if style.get("font_size") in [70, 100]:
+            # Reduce font size for landscape format
+            style["font_size"] = int(style.get("font_size") * 0.7)
+            
+        # Adjust bottom padding for landscape format
+        if style.get("bottom_padding") in [80, 150]:
+            # Use a smaller bottom padding for landscape format
+            style["bottom_padding"] = 60
+            
+        # Adjust visible lines for landscape format
+        if style.get("visible_lines") == 2:
+            # Landscape has more horizontal space but less vertical space
+            style["visible_lines"] = 1
+    
     # Create karaoke caption clips
     caption_clips = create_karaoke_captions(
         word_timings=word_timings,

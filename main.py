@@ -34,7 +34,16 @@ Examples:
   # Generate TikTok-style video with karaoke captions:
   python main.py --media-type image --script-file script.txt --video-format short --style tiktok_neon
   
-  # Available TikTok-style caption presets:
+  # Generate YouTube-style video with karaoke captions:
+  python main.py --media-type image --script-file script.txt --video-format landscape --style tiktok_neon
+  
+  # Generate YouTube-optimized video with high resolution:
+  python main.py --media-type image --script-file script.txt --video-format landscape --youtube-optimized
+  
+  # Generate faster low-resolution video for testing:
+  python main.py --media-type image --script-file script.txt --no-youtube-optimized
+  
+  # Available karaoke caption presets:
   # - tiktok_neon: Cyan highlighting with bold text (best for most videos)
   # - tiktok_bold: Bold text with highlighted words in yellow boxes (authentic TikTok style)
   # - tiktok_minimal: Clean minimal style with pink highlighting (subtle)
@@ -89,6 +98,21 @@ Examples:
         help="Video format/aspect ratio (landscape=16:9, short=9:16, square=1:1)"
     )
     
+    parser.add_argument(
+        "--youtube-optimized",
+        action="store_true",
+        dest="youtube_optimized",
+        default=True,
+        help="Optimize video resolution and bitrate for YouTube standards (default: enabled)"
+    )
+    
+    parser.add_argument(
+        "--no-youtube-optimized",
+        action="store_false",
+        dest="youtube_optimized",
+        help="Disable YouTube optimization for faster generation and testing"
+    )
+    
     # Style options
     style_group = parser.add_argument_group("Style options")
     style_group.add_argument(
@@ -125,7 +149,7 @@ Examples:
         "--highlight-color",
         type=str,
         default="#ff5c5c",
-        help="Color for highlighted words in karaoke captions (used in short format)"
+        help="Color for highlighted words in karaoke captions (used in all video formats)"
     )
     
     style_group.add_argument(
@@ -344,7 +368,8 @@ def process_script(args: argparse.Namespace, scene_builder: SceneBuilder, assemb
         final_path = assembler.assemble_scenes(
             scenes=scenes,
             output_path=args.output_file,
-            fps=24
+            fps=24,
+            optimize_for_youtube=args.youtube_optimized
         )
         
         print("\n=== Pipeline Complete ===")
@@ -433,7 +458,7 @@ def main():
             "font_size": args.font_size,
             "color": args.color,
             "animation_style": args.animation_style,
-            "caption_style": "karaoke" if args.video_format == "short" else "standard",
+            "caption_style": "karaoke",
             "highlight_color": args.highlight_color,
             "highlight_bg_color": args.highlight_bg_color,
             "stroke_color": args.stroke_color,
@@ -441,7 +466,8 @@ def main():
             "use_background": args.use_background,
             "highlight_use_box": args.highlight_use_box,
             "visible_lines": args.visible_lines,
-            "bottom_padding": args.bottom_padding
+            "bottom_padding": args.bottom_padding,
+            "youtube_optimized": args.youtube_optimized
         }
         
         print("\n=== Starting Media Generation Pipeline ===")

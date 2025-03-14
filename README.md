@@ -118,6 +118,40 @@ python main.py \
     --video-format short
 ```
 
+### YouTube Optimization
+
+The pipeline includes YouTube optimization features that adjust video quality settings to match YouTube's recommended specifications:
+
+- **High Resolution**:
+
+  - Landscape: 1920x1080 (1080p)
+  - Short: 1080x1920
+  - Square: 1080x1080
+
+- **Optimized Bitrates**:
+  - Landscape: 10Mbps
+  - Short: 8Mbps
+  - Square: 9Mbps
+
+YouTube optimization is enabled by default. For faster generation during development and testing, you can disable it:
+
+```bash
+# Generate high-quality video for YouTube (default)
+python main.py \
+    --media-type video \
+    --script-file script.txt \
+    --video-format landscape
+
+# Generate faster, lower-resolution video for testing
+python main.py \
+    --media-type video \
+    --script-file script.txt \
+    --video-format landscape \
+    --no-youtube-optimized
+```
+
+Note: Videos will still be accepted by YouTube even without optimization. The optimization settings follow YouTube's recommended specifications for best quality, not their minimum requirements.
+
 You can also combine with image mode:
 
 ```bash
@@ -368,6 +402,26 @@ Common functionality is centralized in the `utils` module:
 - Supports aspect ratios: 16:9, 9:16, 1:1
 - Default video FPS: 24
 - Audio format: WAV (44.1kHz)
+
+### Video Resolutions
+
+**YouTube-Optimized Mode (Default)**:
+
+- Landscape (16:9): 1920x1080
+- Short (9:16): 1080x1920
+- Square (1:1): 1080x1080
+- Video bitrates: 8-10Mbps (format-specific)
+- Audio bitrate: 192kbps
+
+**Fast Generation Mode** (`--no-youtube-optimized`):
+
+- Landscape (16:9): 1024x576
+- Short (9:16): 576x1024
+- Square (1:1): 1024x1024
+- Video bitrate: 8Mbps
+- Audio bitrate: 160kbps
+
+Both modes produce YouTube-compatible videos, with the optimized mode following YouTube's recommended specifications for best quality.
 
 ## Production Readiness
 

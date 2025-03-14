@@ -99,6 +99,7 @@ class ReplicateRayClient(ReplicateClient):
                 - height: Video height in pixels
                 - continue_from_file: Path to previous video to continue from
                 - loop: Whether the video should loop seamlessly
+                - youtube_optimized: Whether to use YouTube-optimized resolutions
             
         Returns:
             List of paths to generated video files
@@ -109,19 +110,34 @@ class ReplicateRayClient(ReplicateClient):
         # Normalize aspect ratio to allowed values
         aspect_ratio = config.get("aspect_ratio", "16:9")
         
+        # Check if we should use YouTube-optimized resolutions
+        youtube_optimized = config.get("youtube_optimized", True)
+        
         # Map dimensions based on aspect ratio if not explicitly provided
         width = config.get("width")
         height = config.get("height")
         
         if not width or not height:
-            if aspect_ratio == "16:9":
-                width, height = 1024, 576
-            elif aspect_ratio == "9:16":  # Short format
-                width, height = 576, 1024
-            elif aspect_ratio == "1:1":   # Square format
-                width, height = 1024, 1024
+            if youtube_optimized:
+                # Use YouTube-optimized resolutions
+                if aspect_ratio == "16:9":
+                    width, height = 1920, 1080  # Full HD for landscape YouTube videos
+                elif aspect_ratio == "9:16":  # Short format
+                    width, height = 1080, 1920  # Full HD for YouTube Shorts
+                elif aspect_ratio == "1:1":   # Square format
+                    width, height = 1080, 1080  # 1080x1080 for square videos
+                else:
+                    width, height = 1920, 1080  # Default to 16:9 Full HD
             else:
-                width, height = 1024, 576  # Default to 16:9
+                # Use original lower resolutions
+                if aspect_ratio == "16:9":
+                    width, height = 1024, 576
+                elif aspect_ratio == "9:16":  # Short format
+                    width, height = 576, 1024
+                elif aspect_ratio == "1:1":   # Square format
+                    width, height = 1024, 1024
+                else:
+                    width, height = 1024, 576  # Default to 16:9
         
         # Prepare parameters for Ray model
         params = {
