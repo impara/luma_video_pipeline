@@ -9,7 +9,7 @@ setup(
         "moviepy==1.0.3",
         "python-dotenv==1.0.0",
         "pydub==0.25.1",
-        "elevenlabs==0.2.27",
+        "elevenlabs==1.54.0",
         "tenacity==8.2.3",
         "pytest==7.4.4",
         "pytest-asyncio==0.23.3"

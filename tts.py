@@ -112,6 +112,7 @@ class TextToSpeech:
         """Initialize ElevenLabs provider."""
         # Import elevenlabs dynamically to handle different package structures
         import elevenlabs
+        from elevenlabs.client import ElevenLabs
         
         self.api_key = api_key or os.getenv("ELEVENLABS_API_KEY")
         if not self.api_key:
@@ -122,23 +123,12 @@ class TextToSpeech:
             raise ValueError("Invalid API key format. ElevenLabs API keys should start with 'el_' or 'sk_'")
         
         try:
-            # Initialize ElevenLabs client
-            try:
-                # Try the newer client approach
-                self.client = elevenlabs.Client(api_key=self.api_key)
-                # Try to list voices to verify API key works
-                response = self.client.voices.get_all()
-            except (AttributeError, ImportError):
-                # Fall back to older approach
-                self.client = elevenlabs.generate
-                # Get voices using the older API
-                response = elevenlabs.voices()
-                
-            if not hasattr(response, 'voices'):
-                # Handle different response formats
-                self.available_voices = response
-            else:
-                self.available_voices = response.voices
+            # Initialize ElevenLabs client using the newer approach
+            self.client = ElevenLabs(api_key=self.api_key)
+            # Try to list voices to verify API key works
+            response = self.client.voices.get_all()
+            
+            self.available_voices = response.voices
                 
             if not self.available_voices:
                 raise TTSError("No voices available. API key may be invalid or rate limited.")
@@ -146,11 +136,7 @@ class TextToSpeech:
             logger.info(f"Successfully connected to ElevenLabs API. Found {len(self.available_voices)} voices.")
             
             # Get available voice names
-            try:
-                self.available_voice_names = sorted([v.name for v in self.available_voices])
-            except AttributeError:
-                # Handle different voice object formats
-                self.available_voice_names = sorted([v['name'] for v in self.available_voices])
+            self.available_voice_names = sorted([v.name for v in self.available_voices])
                 
             logger.info(f"Available voices (sorted): {', '.join(self.available_voice_names)}")
             
@@ -365,17 +351,9 @@ class TextToSpeech:
     
     def _generate_speech_elevenlabs(self, text: str, voice_name: str, settings: Dict, model: str, output_path: Path) -> Dict:
         """Generate speech using ElevenLabs provider."""
-        import elevenlabs
-        
         # Find voice by name
-        try:
-            # Try the newer API structure
-            voice = next((v for v in self.available_voices if v.name == voice_name), None)
-            voice_id = voice.voice_id if voice else None
-        except AttributeError:
-            # Fall back to older API structure
-            voice = next((v for v in self.available_voices if v['name'] == voice_name), None)
-            voice_id = voice['voice_id'] if voice else None
+        voice = next((v for v in self.available_voices if v.name == voice_name), None)
+        voice_id = voice.voice_id if voice else None
             
         if not voice_id:
             raise TTSError(f"Voice '{voice_name}' not found")
@@ -385,42 +363,30 @@ class TextToSpeech:
         duration = 0
         
         try:
-            # Try the newer API first
-            try:
-                logger.info("Generating speech with ElevenLabs API (newer client)")
-                
-                audio_generator = self.client.text_to_speech.convert(
-                    text=text,
-                    voice_id=voice_id,
-                    model_id=model,
-                    voice_settings=settings,
-                    output_format="mp3_44100_128"
-                )
-                
-                # Save audio file
-                with open(output_path, "wb") as f:
-                    # Consume the generator and write chunks to file
+            logger.info("Generating speech with ElevenLabs API")
+            
+            # Get audio generator from the API
+            audio_generator = self.client.text_to_speech.convert(
+                text=text,
+                voice_id=voice_id,
+                model_id=model,
+                voice_settings=settings,
+                output_format="mp3_44100_128"
+            )
+            
+            # Save audio file by collecting chunks from the generator
+            with open(output_path, "wb") as f:
+                # If it's a generator, collect chunks
+                if hasattr(audio_generator, '__iter__') and not isinstance(audio_generator, bytes):
                     for chunk in audio_generator:
                         f.write(chunk)
-                        
-            except (AttributeError, TypeError):
-                # Fall back to older API
-                logger.info("Generating speech with ElevenLabs API (older client)")
-                
-                audio_content = elevenlabs.generate(
-                    text=text,
-                    voice=voice_id,
-                    model=model,
-                    voice_settings=settings
-                )
-                
-                # Save the audio file
-                with open(output_path, "wb") as f:
-                    f.write(audio_content)
+                else:
+                    # If it's already bytes, write directly
+                    f.write(audio_generator)
             
             # Generate approximate word timings based on audio duration
-            audio = AudioSegment.from_file(output_path)
-            duration = len(audio) / 1000.0  # Convert ms to seconds
+            audio_segment = AudioSegment.from_file(output_path)
+            duration = len(audio_segment) / 1000.0  # Convert ms to seconds
             
             # Generate approximate word timings
             word_timings = self._generate_approximate_word_timings(text, duration)
