@@ -1,5 +1,5 @@
 """
-Main entry point for the Luma Video Pipeline application.
+Main entry point for the Video Pipeline application.
 A multi-scene media generation pipeline supporting both video and image generation.
 """
 
@@ -377,6 +377,13 @@ def process_script(args: argparse.Namespace, scene_builder: SceneBuilder, assemb
         print("\nVideo details:")
         print(f"- Total scenes: {len(scenes)}")
         print(f"- Output path: {final_path}")
+        
+        # Note: To upload this video to YouTube, use the youtube_uploader.py script
+        print("\nTo upload this video to YouTube, use the youtube_uploader.py script:")
+        if args.video_format == "short":
+            print(f"python youtube_uploader.py --video-path {final_path} --metadata youtube_metadata.txt --shorts")
+        else:
+            print(f"python youtube_uploader.py --video-path {final_path} --metadata youtube_metadata.txt")
         
     except Exception as e:
         print(f"\nError: {str(e)}")

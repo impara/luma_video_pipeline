@@ -1,1 +1,1 @@
-"""Luma Video Pipeline package.""" 
+"""Video Pipeline package.""" 

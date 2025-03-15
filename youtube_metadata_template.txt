@@ -1,0 +1,22 @@
+# Title
+Your Video Title Here
+
+# Description
+This is a description of your video.
+You can include multiple lines.
+Don't forget to add relevant keywords and links.
+
+# Tags
+tag1, tag2, tag3, AI generated, Video Pipeline
+
+# Category
+22
+
+# Privacy
+private
+
+# Educational Type
+concept_overview
+
+# Thumbnail
+A high-quality image showing the main subject of the video with vibrant colors and clear composition 

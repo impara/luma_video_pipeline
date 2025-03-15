@@ -74,6 +74,9 @@ logs/
 .env.local
 .env.*.local
 *.secret
+client_secret.json
+youtube_token.json
+youtube_metadata.txt
 
 # System Files
 .DS_Store
