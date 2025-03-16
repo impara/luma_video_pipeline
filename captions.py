@@ -296,7 +296,7 @@ def create_karaoke_captions(
     bottom_padding = style.get("bottom_padding", 80)
     
     line_height = int(font_size * 1.2)
-    max_line_width = int(video_width * 0.9)
+    max_line_width = int(video_width * style.get("max_line_width_ratio", 0.9))  # Default to 90% if not specified
     bg_margin = 20
     word_spacing = 10
     
@@ -590,10 +590,15 @@ def add_karaoke_captions_to_video(
             # Use a smaller bottom padding for landscape format
             style["bottom_padding"] = 60
             
-        # Adjust visible lines for landscape format
+        # Increase visible lines for landscape format since we have more horizontal space
         if style.get("visible_lines") == 2:
-            # Landscape has more horizontal space but less vertical space
-            style["visible_lines"] = 1
+            # Landscape has more horizontal space, so we can show more lines
+            style["visible_lines"] = 3
+            
+        # Adjust max line width to use more horizontal space
+        if "max_line_width_ratio" not in style:
+            # Use more of the horizontal space in landscape mode
+            style["max_line_width_ratio"] = 0.95  # 95% of video width
     
     # Create karaoke caption clips
     caption_clips = create_karaoke_captions(
