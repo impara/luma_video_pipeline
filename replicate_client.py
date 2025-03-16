@@ -129,15 +129,15 @@ class ReplicateRayClient(ReplicateClient):
                 else:
                     width, height = 1920, 1080  # Default to 16:9 Full HD
             else:
-                # Use original lower resolutions
+                # Use 720p resolution for non-optimized mode to ensure YouTube 720p quality
                 if aspect_ratio == "16:9":
-                    width, height = 1024, 576
+                    width, height = 1280, 720  # HD Ready (720p)
                 elif aspect_ratio == "9:16":  # Short format
-                    width, height = 576, 1024
+                    width, height = 720, 1280  # Vertical HD
                 elif aspect_ratio == "1:1":   # Square format
-                    width, height = 1024, 1024
+                    width, height = 720, 720  # Square HD
                 else:
-                    width, height = 1024, 576  # Default to 16:9
+                    width, height = 1280, 720  # Default to 16:9 HD
         
         # Prepare parameters for Ray model
         params = {

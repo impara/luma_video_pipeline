@@ -415,13 +415,13 @@ Common functionality is centralized in the `utils` module:
 
 **Fast Generation Mode** (`--no-youtube-optimized`):
 
-- Landscape (16:9): 1024x576
-- Short (9:16): 576x1024
-- Square (1:1): 1024x1024
+- Landscape (16:9): 1280x720 (720p)
+- Short (9:16): 720x1280
+- Square (1:1): 720x720
 - Video bitrate: 8Mbps
 - Audio bitrate: 160kbps
 
-Both modes produce YouTube-compatible videos, with the optimized mode following YouTube's recommended specifications for best quality.
+Both modes produce YouTube-compatible videos. The optimized mode follows YouTube's recommended specifications for best quality (1080p), while the fast generation mode ensures at least 720p quality on YouTube.
 
 ## Production Readiness
 
