@@ -197,12 +197,30 @@ def create_karaoke_captions(
             - highlight_use_box: Whether to use box highlighting style (default: False)
             - visible_lines: Number of lines to show at once (default: 2)
             - bottom_padding: Padding from bottom of screen (default: 80)
+            - timing_adjustment: Seconds to adjust timing (default: 0.2)
+            - use_timing_adjustment: Whether to apply timing adjustment (default: True)
             
     Returns:
         List[TextClip]: List of text clips for each word and background
     """
     if not word_timings:
         return []
+    
+    # Apply timing adjustment to compensate for perception delay, if enabled
+    use_timing_adjustment = style.get("use_timing_adjustment", True)
+    if use_timing_adjustment:
+        # This shifts the highlight timing forward slightly to compensate for rendering delays
+        timing_adjustment = style.get("timing_adjustment", 0.2)  # Default to 200ms adjustment
+        adjusted_word_timings = []
+        
+        for word, start_time, end_time in word_timings:
+            # Adjust start and end times to be slightly earlier
+            adjusted_start = max(0, start_time - timing_adjustment)
+            adjusted_end = max(adjusted_start + 0.05, end_time - timing_adjustment)
+            adjusted_word_timings.append((word, adjusted_start, adjusted_end))
+        
+        # Use adjusted timings for the rest of the function
+        word_timings = adjusted_word_timings
     
     # Clean any <SPLIT> markers from word timings
     cleaned_word_timings = []
@@ -555,30 +573,51 @@ def add_karaoke_captions_to_video(
     Add TikTok-style karaoke captions to a video.
     
     Args:
-        video: The base video clip
+        video: The video clip to add captions to
         word_timings: List of (word, start_time, end_time) tuples
         style: Dictionary of style parameters
+            - font: Font name
+            - font_size: Font size
+            - color: Regular text color
+            - highlight_color: Color for highlighted words
+            - highlight_bg_color: Background color for highlighted words (for boxed style)
+            - stroke_color: Outline color
+            - stroke_width: Outline width
+            - bg_color: Background color (with alpha)
+            - use_background: Whether to use a background (default: False)
+            - highlight_use_box: Whether to use box highlighting style (default: False)
+            - visible_lines: Number of lines to show at once (default: 2)
+            - bottom_padding: Padding from bottom of screen (default: 80)
+            - timing_adjustment: Milliseconds to adjust timing to compensate for delay (default: 200ms)
+            - use_timing_adjustment: Whether to apply timing adjustment (default: True)
             
     Returns:
         VideoFileClip: Video with karaoke captions
     """
     if not word_timings:
         return video
-    
+        
     # Get video dimensions
     width, height = video.size
     
     # Adjust styling based on video format
-    if width == height:  # Square format
-        # If bottom_padding is at the default value (80 or 150), adjust it for square format
-        if style.get("bottom_padding") in [80, 150]:
-            # Use a smaller padding for square format since there's less vertical space
-            style["bottom_padding"] = 100
+    if width < height:  # Portrait format (TikTok-style)
+        # For portrait format, use larger font and higher bottom padding
+        if style.get("font_size") is None:
+            # Default font size for portrait is larger
+            style["font_size"] = 70
             
-        # Adjust font size for square format if using default values
-        if style.get("font_size") in [70, 100]:
-            # Reduce font size slightly for square format
-            style["font_size"] = int(style.get("font_size") * 0.85)
+        # Default bottom padding for portrait
+        if style.get("bottom_padding") is None:
+            style["bottom_padding"] = 150
+            
+        # Default timing adjustment for portrait format
+        if style.get("timing_adjustment") is None:
+            style["timing_adjustment"] = 0.2  # 200ms
+            
+        # Default to using timing adjustment
+        if "use_timing_adjustment" not in style:
+            style["use_timing_adjustment"] = True
     elif width > height:  # Landscape format
         # For landscape format, adjust font size and bottom padding
         if style.get("font_size") in [70, 100]:
@@ -599,6 +638,14 @@ def add_karaoke_captions_to_video(
         if "max_line_width_ratio" not in style:
             # Use more of the horizontal space in landscape mode
             style["max_line_width_ratio"] = 0.95  # 95% of video width
+            
+        # Use larger timing adjustment for landscape format
+        if style.get("timing_adjustment") is None:
+            style["timing_adjustment"] = 0.25  # 250ms for landscape
+            
+        # Default to using timing adjustment
+        if "use_timing_adjustment" not in style:
+            style["use_timing_adjustment"] = True
     
     # Create karaoke caption clips
     caption_clips = create_karaoke_captions(

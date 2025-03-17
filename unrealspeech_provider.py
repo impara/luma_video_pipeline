@@ -389,6 +389,7 @@ class UnrealSpeechProvider:
             
             # Extract word timings from response headers if available
             word_timings = []
+            has_api_timings = False
             try:
                 # Check if response has timestamps in headers
                 if "X-Timestamps" in response.headers:
@@ -396,6 +397,7 @@ class UnrealSpeechProvider:
                     logger.info(f"Found timestamps in X-Timestamps header: {timestamps_str[:100]}...")
                     timestamps = json.loads(timestamps_str)
                     word_timings = timestamps
+                    has_api_timings = True
                 # Check if response has JSON content with timestamps
                 elif "application/json" in response.headers.get("Content-Type", ""):
                     data = response.json()
@@ -408,8 +410,10 @@ class UnrealSpeechProvider:
                                 start = item["Start"]
                                 end = item["End"]
                                 word_timings.append((word, start, end))
+                        has_api_timings = True
             except Exception as e:
                 logger.warning(f"Failed to extract word timings: {e}")
+                has_api_timings = False
             
             # Calculate duration using a safer approach
             try:
@@ -426,8 +430,14 @@ class UnrealSpeechProvider:
             
             # If no word timings were extracted, generate approximate ones
             if not word_timings:
+                # Generate approximate timings only
                 word_timings = self._generate_approximate_word_timings(text, duration)
                 logger.info(f"Generated approximate word timings for {len(word_timings)} words")
+            
+            # For API-provided timings, use them directly without modification
+            # Note: we don't apply numeric expansion to API timings
+            if has_api_timings:
+                logger.info(f"Using API-provided word timings for {len(word_timings)} words (no numeric expansion)")
             
             # Create result dictionary
             result = {

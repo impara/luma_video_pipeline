@@ -388,9 +388,25 @@ class TextToSpeech:
             audio_segment = AudioSegment.from_file(output_path)
             duration = len(audio_segment) / 1000.0  # Convert ms to seconds
             
-            # Generate approximate word timings
-            word_timings = self._generate_approximate_word_timings(text, duration)
-            logger.info(f"Generated approximate word timings for {len(word_timings)} words")
+            # Check if we can get word timings from ElevenLabs API
+            api_word_timings = []
+            try:
+                # TODO: Replace with actual ElevenLabs API call to get word timings when available
+                # Currently ElevenLabs doesn't provide word timings through their API
+                pass
+            except Exception as e:
+                logger.warning(f"Could not get word timings from API: {e}")
+            
+            # If API timings are available, use them directly without modification
+            if api_word_timings:
+                word_timings = api_word_timings
+                logger.info(f"Using API-provided word timings for {len(word_timings)} words")
+            else:
+                # Generate approximate word timings
+                approximate_timings = self._generate_approximate_word_timings(text, duration)
+                # For approximate timings, expand numeric references to improve highlighting
+                word_timings = self._expand_numeric_references(approximate_timings)
+                logger.info(f"Generated approximate word timings for {len(word_timings)} words")
             
         except Exception as e:
             logger.warning(f"Failed to generate speech: {e}")
@@ -501,10 +517,8 @@ class TextToSpeech:
                 word_timings = [(word, start * scale_factor, end * scale_factor) 
                                for word, start, end in word_timings]
         
-        # Expand numeric references into multiple tokens for better karaoke highlighting
-        expanded_word_timings = self._expand_numeric_references(word_timings)
-        
-        return expanded_word_timings
+        # No longer expanding numeric references here - this is now done conditionally by the caller
+        return word_timings
 
     def _expand_numeric_references(self, word_timings: List[Tuple[str, float, float]]) -> List[Tuple[str, float, float]]:
         """
