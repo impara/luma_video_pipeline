@@ -55,6 +55,9 @@ Examples:
   # Configure caption paging system for longer narrations:
   python main.py --media-type image --script-file script.txt --video-format short --style tiktok_neon --visible-lines 3 --bottom-padding 100
   
+  # Control karaoke caption timing adjustments:
+  python main.py --media-type image --script-file script.txt --video-format short --style tiktok_neon --use-timing-adjustment true
+  
   # Use UnrealSpeech for TTS instead of ElevenLabs (always uses 'Daniel' voice):
   python main.py --media-type video --script-file script.txt --tts-provider unrealspeech
 """
@@ -96,6 +99,14 @@ Examples:
         choices=["landscape", "short", "square"],
         default="landscape",
         help="Video format/aspect ratio (landscape=16:9, short=9:16, square=1:1)"
+    )
+    
+    parser.add_argument(
+        "--use-timing-adjustment",
+        type=str,
+        choices=["true", "false"],
+        default="true",
+        help="Whether to apply timing adjustments for karaoke captions (0.2s for portrait, 0.25s for landscape)"
     )
     
     parser.add_argument(

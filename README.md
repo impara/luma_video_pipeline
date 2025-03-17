@@ -176,8 +176,15 @@ python main.py \
     --highlight-color "#00ffff" \
     --stroke-color "black" \
     --stroke-width 2 \
-    --font-size 60
+    --font-size 60 \
+    --use-timing-adjustment true
 ```
+
+The `--use-timing-adjustment` flag controls whether to apply timing adjustments to better synchronize the karaoke highlighting with the audio. By default:
+
+- Portrait videos use a 0.2 second adjustment
+- Landscape videos use a 0.25 second adjustment
+  Set to `false` to disable timing adjustments if you prefer the raw timings.
 
 For authentic TikTok-style boxed captions (where highlighted words appear in a box):
 
