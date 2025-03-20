@@ -32,6 +32,9 @@ class Config:
         # UnrealSpeech API token (optional if using ElevenLabs)
         self.unrealspeech_token = os.getenv("API_KEY")
         
+        # Gemini API key (for Google Generative AI)
+        self.gemini_api_key = os.getenv("GEMINI_API_KEY")
+        
         # Optional development flags
         self.dev_mode = os.getenv("VIDEO_PIPELINE_DEV_MODE", "").lower() in ("true", "1", "yes")
         
@@ -42,8 +45,11 @@ class Config:
         """Validate that all required configuration is present"""
         missing = []
         
+        # Validate based on possible use cases (some API keys may only be needed depending on options)
         if not self.replicate_token:
-            missing.append("REPLICATE_API_TOKEN")
+            # Replicate token is not required if using only Gemini for image generation
+            if not self.gemini_api_key:
+                missing.append("REPLICATE_API_TOKEN or GEMINI_API_KEY")
         
         # Either ElevenLabs or UnrealSpeech API key is required
         if not self.elevenlabs_token and not self.unrealspeech_token:

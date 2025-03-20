@@ -17,3 +17,5 @@ google-auth-httplib2==0.1.1
 google-auth-oauthlib==1.1.0
 # Image processing dependencies
 Pillow==10.0.0
+# Google Generative AI (Gemini) dependencies
+google-genai==1.5.0

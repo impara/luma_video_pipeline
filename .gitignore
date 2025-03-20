@@ -77,7 +77,7 @@ logs/
 client_secret.json
 youtube_token.json
 youtube_metadata.txt
-
+youtube2.txt
 # System Files
 .DS_Store
 Thumbs.db

@@ -8,6 +8,7 @@ from pathlib import Path
 from config import Config, ConfigError
 from replicate_client import ReplicateRayClient
 from sdxl_client import SDXLClient
+from gemini_client import GeminiClient
 from tts import TextToSpeech
 from captions import create_caption_clip, add_captions_to_video
 from assembler import VideoAssembler
@@ -26,7 +27,10 @@ Examples:
   python main.py --media-type video --script-file script.txt --output-file output.mp4
 
   # Generate animated images using SDXL model:
-  python main.py --media-type image --script-file script.txt --output-file output.mp4
+  python main.py --media-type image --script-file script.txt --output-file output.mp4 --image-model sdxl
+
+  # Generate animated images using Google Gemini (free tier):
+  python main.py --media-type image --script-file script.txt --output-file output.mp4 --image-model gemini
 
   # Customize animation style for images:
   python main.py --media-type image --script-file script.txt --animation-style ken_burns
@@ -83,6 +87,14 @@ Examples:
         choices=["video", "image"],
         default="video",
         help="Type of media to generate (video or image)"
+    )
+    
+    parser.add_argument(
+        "--image-model",
+        type=str,
+        choices=["sdxl", "gemini"],
+        default="sdxl",
+        help="Model to use for image generation (sdxl from Replicate or gemini from Google)"
     )
     
     parser.add_argument(
@@ -429,11 +441,18 @@ def main():
             )
             print("\nUsing Ray model for video generation")
         else:  # image
-            media_client = SDXLClient(
-                api_token=config.replicate_token,
-                dev_mode=config.is_dev_mode  # Use config.is_dev_mode for consistency
-            )
-            print("\nUsing SDXL model for image generation")
+            if args.image_model == "gemini":
+                media_client = GeminiClient(
+                    api_key=config.gemini_api_key,
+                    dev_mode=config.is_dev_mode
+                )
+                print("\nUsing Google Gemini model for image generation (free tier)")
+            else:  # sdxl
+                media_client = SDXLClient(
+                    api_token=config.replicate_token,
+                    dev_mode=config.is_dev_mode
+                )
+                print("\nUsing SDXL model for image generation")
         
         # Initialize other components
         tts = TextToSpeech(

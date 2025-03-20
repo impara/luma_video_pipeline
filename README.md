@@ -4,14 +4,17 @@ A Python-based pipeline that generates narrated videos using either:
 
 - Replicate's Ray model for video generation
 - SDXL for high-quality images with Ken Burns animation
+- Google Gemini API for image generation (free tier available)
 
 Combined with ElevenLabs for text-to-speech voiceovers and automatic caption overlays.
 
 ## Features
 
-- Dual-mode media generation:
+- Multi-provider media generation:
   - Video mode: Generate AI videos using Replicate Ray model
-  - Image mode: Generate SDXL images with dynamic animations
+  - Image mode: Generate images with dynamic animations
+    - SDXL via Replicate for high-quality images
+    - Google Gemini for free-tier image generation
 - Text-to-speech voiceovers using ElevenLabs or UnrealSpeech
 - Automatic caption generation and overlay
 - TikTok-style karaoke captions for short-form videos
@@ -27,7 +30,7 @@ Combined with ElevenLabs for text-to-speech voiceovers and automatic caption ove
 
 The pipeline is built with a modular architecture:
 
-- **Media Clients**: Interchangeable implementations (SDXL and Ray) that share a common interface
+- **Media Clients**: Interchangeable implementations (SDXL, Ray, Gemini) that share a common interface
 - **Cache Handler**: Centralized caching mechanism to avoid redundant API calls
 - **Error Handling**: Unified error handling with retry mechanisms
 - **Utilities**: Common functionality for file downloads and path handling
@@ -36,8 +39,9 @@ The pipeline is built with a modular architecture:
 ## Prerequisites
 
 - Python 3.10 or higher
-- Replicate API token (get one at https://replicate.com)
-- ElevenLabs API key (for TTS functionality)
+- Replicate API token (only if using SDXL or Ray models) - get one at https://replicate.com
+- ElevenLabs API key (for TTS functionality) - get one at https://elevenlabs.io
+- Google Gemini API key (only if using Gemini for images) - get one at https://ai.google.dev/
 
 ## Installation
 
@@ -69,14 +73,15 @@ pip install -r requirements.txt
 # Create .env file
 cp .env.example .env
 
-# Edit .env and add your API keys
-REPLICATE_API_TOKEN=your_token_here
-ELEVENLABS_API_KEY=your_key_here
+# Edit .env and add your API keys:
+# - REPLICATE_API_TOKEN (for SDXL/Ray)
+# - ELEVENLABS_API_KEY or API_KEY (for TTS)
+# - GEMINI_API_KEY (for Google Gemini)
 ```
 
 ## Usage
 
-The pipeline supports two modes of operation:
+The pipeline supports multiple modes of operation:
 
 ### Video Mode (using Ray)
 
@@ -87,11 +92,25 @@ python main.py \
     --output-file output.mp4
 ```
 
-### Image Mode (using SDXL)
+### Image Mode (using SDXL or Gemini)
+
+Using SDXL (default):
 
 ```bash
 python main.py \
     --media-type image \
+    --image-model sdxl \
+    --script-file script.txt \
+    --output-file output.mp4 \
+    --animation-style ken_burns
+```
+
+Using Google Gemini (free tier):
+
+```bash
+python main.py \
+    --media-type image \
+    --image-model gemini \
     --script-file script.txt \
     --output-file output.mp4 \
     --animation-style ken_burns
@@ -339,8 +358,9 @@ The `GenerativeMediaClient` interface allows easy switching between different me
 
 - **ReplicateRayClient**: For video generation
 - **SDXLClient**: For image generation
+- **GeminiClient**: For Google Gemini image generation
 
-Both clients share a common interface, making it easy to add new providers.
+All clients share a common interface, making it easy to add new providers.
 
 ### Cache Handler
 
