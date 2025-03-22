@@ -534,8 +534,53 @@ class TextToSpeech:
         expanded_timings = []
         verse_reference_pattern = re.compile(r'^\d+:\d+(-\d+)?$')  # Matches patterns like 99:7 or 99:7-8
         numeric_pattern = re.compile(r'^\d+(\.\d+)?$')  # Matches numbers like 99, 99.7
+        citation_pattern = re.compile(r'\(.*\d+:\d+.*\)')  # Matches citation patterns like (Al-A'raf 7:28)
         
-        for word, start_time, end_time in word_timings:
+        # First pass: identify citation blocks that should be kept together
+        skip_indices = set()
+        i = 0
+        
+        # Process citations first to mark words that should be kept together
+        while i < len(word_timings) - 1:
+            word, start_time, end_time = word_timings[i]
+            
+            # Check if this might be the start of a citation (contains opening parenthesis)
+            if '(' in word and i + 1 < len(word_timings):
+                # Look ahead to see if we can form a citation
+                citation_text = word
+                citation_end = i
+                citation_start_time = start_time
+                citation_end_time = end_time
+                
+                # Look ahead max 5 words to find the complete citation
+                for j in range(i+1, min(i+6, len(word_timings))):
+                    next_word, next_start, next_end = word_timings[j]
+                    citation_text += " " + next_word
+                    citation_end = j
+                    citation_end_time = next_end
+                    
+                    # If we see a closing parenthesis, this might complete the citation
+                    if ')' in next_word:
+                        break
+                
+                # Check if the constructed text matches a citation pattern
+                if citation_pattern.search(citation_text) or (':' in citation_text and '(' in citation_text and ')' in citation_text):
+                    # This looks like a citation with verse references - keep it together
+                    expanded_timings.append((citation_text, citation_start_time, citation_end_time))
+                    # Mark all these indices to be skipped in the main processing
+                    for j in range(i, citation_end + 1):
+                        skip_indices.add(j)
+                    i = citation_end + 1
+                    continue
+            
+            i += 1
+        
+        # Now process the remaining words
+        for i, (word, start_time, end_time) in enumerate(word_timings):
+            # Skip words that are part of citations
+            if i in skip_indices:
+                continue
+                
             # Check if this is a verse reference like "99:7-8"
             if verse_reference_pattern.match(word):
                 duration = end_time - start_time

@@ -401,7 +401,8 @@ class SceneBuilder:
                             "use_background": kwargs.get("use_background", False),
                             "highlight_use_box": kwargs.get("highlight_use_box", False),
                             "visible_lines": kwargs.get("visible_lines", 2),  # Number of lines to show at once
-                            "bottom_padding": kwargs.get("bottom_padding", 80)  # Padding from bottom of screen
+                            "bottom_padding": kwargs.get("bottom_padding", 80),  # Padding from bottom of screen
+                            "tts_provider": getattr(self.tts, "provider_name", "unrealspeech")  # Pass TTS provider name
                         }
                         
                         # Apply karaoke captions
@@ -553,6 +554,20 @@ def animate_image_clip(
     # Get dimensions
     h, w = img_array.shape[:2]
     logger.info(f"Image dimensions: h={h}, w={w}")
+    
+    # Ensure consistent dimensions for all images 
+    # We'll enforce 16:9 aspect ratio at 1280x720 for all images
+    if h != 720 or w != 1280:
+        logger.info(f"Resizing image from {w}x{h} to 1280x720 for consistency")
+        target_h, target_w = 720, 1280
+        frame_pil = Image.fromarray(img_array)
+        resized_pil = frame_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
+        img_array = np.array(resized_pil)
+        # Update dimensions
+        h, w = target_h, target_w
+        # Update ImageClip with resized array
+        img = ImageClip(img_array)
+        logger.info(f"Image successfully resized to consistent dimensions: h={h}, w={w}")
     
     if animation_style == "ken_burns":
         # Create a Ken Burns style effect combining zoom and pan

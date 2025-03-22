@@ -15,6 +15,8 @@ from assembler import VideoAssembler
 from scene_builder import SceneBuilder
 from parse_script import parse_two_part_script
 from moviepy.editor import ColorClip
+from logging_config import configure_logging
+import logging
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the command line argument parser"""
@@ -240,6 +242,13 @@ Examples:
         help="Disable smart voice parameter optimization (voice is always 'Daniel')"
     )
     
+    # Add verbose flag for debugging
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging and debugging output"
+    )
+    
     return parser
 
 def get_style_preset(preset_name: str) -> dict:
@@ -278,7 +287,7 @@ def get_style_preset(preset_name: str) -> dict:
         },
         "tiktok_bold": {
             "font": "Arial-Black",  # Bolder font for TikTok style
-            "font_size": 100,  # Larger font size for authentic TikTok look
+            "font_size": 80,  # Larger font size for authentic TikTok look
             "color": "white",  # Regular text color
             "highlight_color": "white",  # Text color for highlighted words
             "highlight_bg_color": (255, 191, 0),  # Golden yellow color for highlighted words
@@ -287,8 +296,14 @@ def get_style_preset(preset_name: str) -> dict:
             "use_background": False,  # No background for non-highlighted words
             "bg_color": (0, 0, 0),  # Black (RGB tuple)
             "highlight_use_box": True,  # Use box highlighting style
-            "visible_lines": 2,
-            "bottom_padding": 150  # Increased bottom padding for better positioning
+            "visible_lines": 3,  # Show more lines for complex content
+            "bottom_padding": 120,  # Increased bottom padding for better positioning
+            "max_line_width_ratio": 0.85,  # Keep good margins
+            "preserve_spacing": True,  # Ensure word spacing is preserved
+            "consistent_positioning": True,  # Ensure caption positioning is consistent
+            "base_visible_lines": 3,  # Fixed number of lines for baseline positioning
+            "word_spacing": 15,  # Extra space between words for clarity
+            "timing_buffer": 0.08  # 80ms buffer between highlighted words
         },
         "tiktok_minimal": {
             "font": "Arial",
@@ -314,7 +329,8 @@ def get_style_preset(preset_name: str) -> dict:
             "bg_color": (0, 0, 0),  # Black (RGB tuple)
             "highlight_use_box": True,  # Use box highlighting style
             "visible_lines": 2,
-            "bottom_padding": 150  # Increased bottom padding for better positioning
+            "bottom_padding": 150,  # Increased bottom padding for better positioning
+            "timing_adjustment": 1.0  # 1 second lead time for highlighting words
         }
     }
     
@@ -426,12 +442,12 @@ def process_script(args: argparse.Namespace, scene_builder: SceneBuilder, assemb
 def main():
     """Main entry point for the media generation pipeline."""
     try:
+        # Configure logging with debug mode based on verbosity
+        args = create_parser().parse_args()
+        configure_logging(debug_mode=args.verbose)
+        
         # Load and validate configuration
         config = Config()
-        
-        # Parse command line arguments
-        parser = create_parser()
-        args = parser.parse_args()
         
         # Initialize media client based on type
         if args.media_type == "video":

@@ -1,4 +1,4 @@
-httpx==0.26.0
+httpx>=0.28.1,<1.0.0
 moviepy==1.0.3
 python-dotenv==1.0.0
 pydub==0.25.1
@@ -19,3 +19,5 @@ google-auth-oauthlib==1.1.0
 Pillow==10.0.0
 # Google Generative AI (Gemini) dependencies
 google-genai==1.5.0
+# Logging dependencies
+loguru==0.7.3

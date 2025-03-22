@@ -8,9 +8,9 @@ Features:
 """
 
 import os
+import logging
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict, Any
-from pathlib import Path
+from typing import Optional, Tuple, List, Dict, Any, Union
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -22,6 +22,210 @@ from moviepy.editor import (
     VideoFileClip,
     ImageClip
 )
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+def calculate_dynamic_timing_adjustment(word: str, index: int, total_words: int, 
+                                       sentence_duration: float, base_adjustment: float,
+                                       tts_provider: str = "unrealspeech") -> float:
+    """
+    Calculate a dynamic timing adjustment for a word based on various factors.
+    
+    Args:
+        word: The word to calculate adjustment for
+        index: Position of word in the sentence (0-based)
+        total_words: Total number of words in sentence
+        sentence_duration: Duration of the complete sentence in seconds
+        base_adjustment: Base timing adjustment value (e.g., 0.6)
+        tts_provider: TTS provider name
+        
+    Returns:
+        float: Dynamic timing adjustment in seconds
+    """
+    # Start with the base adjustment
+    adjustment = base_adjustment
+    
+    # Factor 1: Word length adjustment (longer words need more lead time)
+    length_factor = len(word) / 5  # Normalize to a typical word length
+    length_adjustment = base_adjustment * (length_factor - 1) * 0.2
+    adjustment += max(-0.1, min(0.3, length_adjustment))  # Constrain the impact
+    
+    # Factor 2: Position-based scaling (later words need more adjustment)
+    position_ratio = index / max(1, total_words - 1)  # 0 to 1
+    position_scaling = 0.2 * position_ratio  # Up to 0.2s additional for last word
+    adjustment += position_scaling
+    
+    # Factor 3: Speaking rate consideration
+    avg_word_duration = sentence_duration / total_words if total_words > 0 else 0.3
+    if avg_word_duration < 0.2:  # Fast speaking rate
+        adjustment += 0.1  # Add more lead time for fast speech
+    elif avg_word_duration > 0.4:  # Slow speaking rate
+        adjustment -= 0.1  # Reduce lead time for slow speech
+    
+    # Factor 4: Special word handling
+    if any(char.isdigit() for char in word):  # Contains numbers
+        adjustment += 0.1  # Numbers often take longer to pronounce
+    
+    if word.endswith((',', '.', '!', '?', ':', ';')):
+        adjustment += 0.05  # Words before punctuation often have longer durations
+    
+    # Provider-specific adjustments
+    if tts_provider.lower() == "elevenlabs":
+        adjustment += 0.1  # Add provider-specific offset if needed
+    
+    # Ensure reasonable bounds
+    return max(0.3, min(1.5, adjustment))
+
+def convert_color_to_rgb(color_value):
+    """
+    Convert string colors (names or hex) to RGB tuples.
+    
+    Args:
+        color_value: Color value as string (name or hex) or RGB tuple
+        
+    Returns:
+        tuple: RGB tuple (r, g, b)
+    """
+    if isinstance(color_value, tuple):
+        if len(color_value) >= 3:
+            return color_value[:3]  # Return just RGB components
+        else:
+            return (255, 255, 255)  # Default to white for invalid tuples
+    
+    if isinstance(color_value, str):
+        color_value = color_value.lower()
+        # Common color names
+        if color_value == "white":
+            return (255, 255, 255)
+        elif color_value == "black":
+            return (0, 0, 0)
+        elif color_value == "red":
+            return (255, 0, 0)
+        elif color_value == "green":
+            return (0, 255, 0)
+        elif color_value == "blue":
+            return (0, 0, 255)
+        elif color_value == "yellow":
+            return (255, 255, 0)
+        # Hex color
+        elif color_value.startswith("#"):
+            try:
+                h = color_value.lstrip('#')
+                return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+            except Exception:
+                return (255, 255, 255)  # Default to white on error
+                
+    # Default to white for any other cases
+    return (255, 255, 255)
+
+def create_text_clip(
+    text: str,
+    font: str, 
+    font_size: int, 
+    color: str, 
+    position: tuple = None,
+    start_time: float = None,
+    end_time: float = None,
+    stroke_color: str = None,
+    stroke_width: int = 0,
+    method: str = None,
+    align: str = None,
+    size: tuple = None
+) -> TextClip:
+    """
+    Create a text clip with common parameters and optionally position and time it.
+    
+    Args:
+        text: Text content
+        font: Font name
+        font_size: Font size
+        color: Text color
+        position: Optional (x,y) position tuple
+        start_time: Optional start time
+        end_time: Optional end time
+        stroke_color: Optional outline color
+        stroke_width: Optional outline width
+        method: Optional TextClip method ('caption', etc)
+        align: Optional text alignment
+        size: Optional size constraint tuple (width, height)
+        
+    Returns:
+        TextClip: The created and configured text clip
+    """
+    # Create the text clip with all provided parameters
+    params = {
+        'txt': text,
+        'fontsize': font_size,
+        'font': font,
+        'color': color
+    }
+    
+    # Add optional parameters if provided
+    if stroke_color and stroke_width:
+        params['stroke_color'] = stroke_color
+        params['stroke_width'] = stroke_width
+    
+    if method:
+        params['method'] = method
+        
+    if align:
+        params['align'] = align
+        
+    if size:
+        params['size'] = size
+    
+    # Create the clip
+    clip = TextClip(**params)
+    
+    # Apply position if provided
+    if position:
+        clip = clip.set_position(position)
+    
+    # Apply timing if provided
+    if start_time is not None and end_time is not None:
+        clip = clip.set_start(start_time).set_end(end_time)
+    
+    return clip
+
+def create_shadow_text_clip(
+    text: str,
+    font: str, 
+    font_size: int, 
+    position: tuple,
+    shadow_offset: int = 2,
+    start_time: float = None,
+    end_time: float = None
+) -> TextClip:
+    """
+    Create a text clip with a shadow effect (black offset text behind main text).
+    
+    Args:
+        text: Text content
+        font: Font name
+        font_size: Font size
+        position: (x,y) position tuple for the main text
+        shadow_offset: Pixel offset for the shadow (default: 2)
+        start_time: Optional start time
+        end_time: Optional end time
+        
+    Returns:
+        TextClip: The shadow text clip
+    """
+    # Calculate shadow position (offset from main position)
+    x, y = position
+    shadow_position = (int(x + shadow_offset), int(y + shadow_offset))
+    
+    # Create the shadow clip
+    return create_text_clip(
+        text=text,
+        font=font,
+        font_size=font_size,
+        color="black",
+        position=shadow_position,
+        start_time=start_time,
+        end_time=end_time
+    )
 
 def overlay_caption_on_video(
     video: VideoFileClip,
@@ -84,16 +288,16 @@ def create_caption_clip(
     if duration <= 0:
         raise ValueError("Duration must be positive")
 
-    print(f"\nCreating caption with text: {text}")
-    print(f"Using font: {font} at size: {font_size}")
+    logger.info(f"Creating caption with text: {text}")
+    logger.info(f"Using font: {font} at size: {font_size}")
     
     try:
         test_clip = TextClip("Test", font=font)
         test_clip.close()
-        print("Font test successful")
+        logger.info("Font test successful")
     except Exception as e:
-        print(f"Font test failed: {e}")
-        print("Falling back to default font")
+        logger.error(f"Font test failed: {e}")
+        logger.info("Falling back to default font")
         font = None  # Let MoviePy use default font
 
     txt_clip = TextClip(
@@ -134,7 +338,7 @@ def create_caption_clip(
         size=(video_width, txt_height + padding)
     )
     
-    print(f"Created text clip with size: {txt_clip.size}")
+    logger.info(f"Created text clip with size: {txt_clip.size}")
     
     # Increase bottom margin for better placement
     margin = 50  # Increased margin for better spacing from bottom
@@ -144,7 +348,7 @@ def create_caption_clip(
     else:  # top
         y_position = margin  # Place below top margin
     
-    print(f"Calculated y_position: {y_position}")
+    logger.info(f"Calculated y_position: {y_position}")
     
     # Set final position and duration
     txt_clip = (txt_clip
@@ -163,7 +367,7 @@ def create_caption_clip(
         # Save test frame
         test_frame_path = debug_dir / f"caption_test_{text[:20].replace(' ', '_')}.png"
         test_composite.save_frame(str(test_frame_path), t=0)
-        print(f"Saved caption test frame to: {test_frame_path}")
+        logger.info(f"Saved caption test frame to: {test_frame_path}")
         
         # Clean up
         test_frame.close()
@@ -197,8 +401,10 @@ def create_karaoke_captions(
             - highlight_use_box: Whether to use box highlighting style (default: False)
             - visible_lines: Number of lines to show at once (default: 2)
             - bottom_padding: Padding from bottom of screen (default: 80)
-            - timing_adjustment: Seconds to adjust timing (default: 0.2)
+            - timing_adjustment: Seconds to adjust timing (default: 0.4)
             - use_timing_adjustment: Whether to apply timing adjustment (default: True)
+            - frame_buffer: Small time gap between word highlights (default: 1/24 second)
+            - word_spacing: Extra space to add between words (default: 10)
             
     Returns:
         List[TextClip]: List of text clips for each word and background
@@ -206,31 +412,79 @@ def create_karaoke_captions(
     if not word_timings:
         return []
     
+    # Check for spacing and positioning preferences
+    preserve_spacing = style.get("preserve_spacing", True)
+    consistent_positioning = style.get("consistent_positioning", True)
+    
+    # Get buffer time - small gap between word highlights to prevent frame-perfect timing issues
+    # Default to 1/24 of a second (one frame at 24fps)
+    frame_buffer = style.get("frame_buffer", 1/24)
+    
+    # IMPROVEMENT 1: Content-aware sizing
+    # Calculate text complexity to adjust font size and visible lines
+    full_text = ' '.join([w[0] for w in word_timings])
+    text_complexity = len(full_text)
+    
+    # Apply content-aware adjustments for complex content
+    if text_complexity > 100:  # Threshold for complex content
+        style["font_size"] = int(style.get("font_size", 60) * 0.85)
+        style["visible_lines"] = max(style.get("visible_lines", 2), 3)
+    
     # Apply timing adjustment to compensate for perception delay, if enabled
     use_timing_adjustment = style.get("use_timing_adjustment", True)
     if use_timing_adjustment:
-        # This shifts the highlight timing forward slightly to compensate for rendering delays
-        timing_adjustment = style.get("timing_adjustment", 0.2)  # Default to 200ms adjustment
+        # Get base timing adjustment
+        base_adjustment = style.get("timing_adjustment", 0.6)
+        
+        # Get TTS provider if available
+        tts_provider = style.get("tts_provider", "unrealspeech")
+        
+        # Calculate total duration for rate analysis
+        if word_timings:
+            sentence_duration = word_timings[-1][2] - word_timings[0][1]
+            total_words = len(word_timings)
+        else:
+            sentence_duration = 0
+            total_words = 0
+        
         adjusted_word_timings = []
         
-        for word, start_time, end_time in word_timings:
-            # Adjust start and end times to be slightly earlier
-            adjusted_start = max(0, start_time - timing_adjustment)
-            adjusted_end = max(adjusted_start + 0.05, end_time - timing_adjustment)
+        for i, (word, start_time, end_time) in enumerate(word_timings):
+            # Calculate dynamic adjustment for this specific word
+            dynamic_adjustment = calculate_dynamic_timing_adjustment(
+                word=word, 
+                index=i, 
+                total_words=total_words,
+                sentence_duration=sentence_duration, 
+                base_adjustment=base_adjustment,
+                tts_provider=tts_provider
+            )
+            
+            # Adjust start and end times using the dynamic adjustment
+            adjusted_start = max(0, start_time - dynamic_adjustment)
+            # Add a tiny buffer at the end to prevent perfect frame alignment issues
+            adjusted_end = max(adjusted_start + 0.05, end_time - dynamic_adjustment)
             adjusted_word_timings.append((word, adjusted_start, adjusted_end))
         
         # Use adjusted timings for the rest of the function
         word_timings = adjusted_word_timings
     
-    # Clean any <SPLIT> markers from word timings
+    # Clean word timings - just remove <SPLIT> markers and trim whitespace
     cleaned_word_timings = []
-    for word, start_time, end_time in word_timings:
-        # Remove <SPLIT> markers from words
-        cleaned_word = word.replace("<SPLIT>", "").strip()
-        if cleaned_word:  # Only add if the word is not empty after cleaning
-            cleaned_word_timings.append((cleaned_word, start_time, end_time))
+    full_text = ""
     
-    # Use cleaned word timings for the rest of the function
+    for word, start_time, end_time in word_timings:
+        # Remove <SPLIT> markers and clean
+        cleaned_word = word.replace("<SPLIT>", "").strip()
+        
+        # Skip empty words
+        if not cleaned_word:
+            continue
+        
+        # Add to full text and word timings
+        full_text += cleaned_word + " "
+        cleaned_word_timings.append((cleaned_word, start_time, end_time))
+    
     word_timings = cleaned_word_timings
     
     # Extract style parameters with defaults
@@ -254,32 +508,8 @@ def create_karaoke_captions(
     else:
         highlight_color = highlight_color_value
     
-    # Ensure highlight_bg_color is in RGB format
-    highlight_bg_color_value = style.get("highlight_bg_color", "white")
-    # Convert string color names to RGB tuples
-    if isinstance(highlight_bg_color_value, str):
-        if highlight_bg_color_value.lower() == "white":
-            highlight_bg_color = (255, 255, 255)
-        elif highlight_bg_color_value.lower() == "black":
-            highlight_bg_color = (0, 0, 0)
-        elif highlight_bg_color_value.lower() == "red":
-            highlight_bg_color = (255, 0, 0)
-        elif highlight_bg_color_value.lower() == "green":
-            highlight_bg_color = (0, 255, 0)
-        elif highlight_bg_color_value.lower() == "blue":
-            highlight_bg_color = (0, 0, 255)
-        elif highlight_bg_color_value.lower() == "yellow":
-            highlight_bg_color = (255, 255, 0)
-        elif highlight_bg_color_value.startswith("#"):
-            # Convert hex color to RGB
-            h = highlight_bg_color_value.lstrip('#')
-            highlight_bg_color = tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
-        else:
-            # Default to white for unknown colors
-            highlight_bg_color = (255, 255, 255)
-    else:
-        # Keep as is (assuming it's already in RGB format)
-        highlight_bg_color = highlight_bg_color_value
+    # Get highlight background color using utility function
+    highlight_bg_color = convert_color_to_rgb(style.get("highlight_bg_color", "white"))
     
     stroke_color_value = style.get("stroke_color", "black")
     if stroke_color_value == "white":
@@ -314,9 +544,15 @@ def create_karaoke_captions(
     bottom_padding = style.get("bottom_padding", 80)
     
     line_height = int(font_size * 1.2)
-    max_line_width = int(video_width * style.get("max_line_width_ratio", 0.9))  # Default to 90% if not specified
+    
+    # IMPROVEMENT 2: Dynamic line width adaptation based on content length
+    base_ratio = style.get("max_line_width_ratio", 0.9)
+    content_factor = min(1.0, 100 / max(1, text_complexity))
+    adjusted_ratio = base_ratio * (0.8 + (0.2 * content_factor))
+    max_line_width = int(video_width * adjusted_ratio)
+    
     bg_margin = 20
-    word_spacing = 10
+    word_spacing = style.get("word_spacing", 10)  # Get word spacing from style, default to 10
     
     # Calculate total duration from word timings
     if word_timings:
@@ -331,7 +567,8 @@ def create_karaoke_captions(
     
     for word, start, end in word_timings:
         # Create a temporary TextClip to measure the width of the word
-        temp_clip = TextClip(word + " ", font=font, fontsize=font_size, color=color)
+        # Add a space after each word to ensure proper spacing during rendering
+        temp_clip = TextClip(word, font=font, fontsize=font_size, color=color)
         word_width = temp_clip.w
         temp_clip.close()
         
@@ -349,6 +586,18 @@ def create_karaoke_captions(
     # Add the last line if not empty
     if current_line:
         lines.append(current_line)
+    
+    # IMPROVEMENT 4: Implement vertical overflow protection
+    if len(lines) > visible_lines:
+        # Either increase visible lines or reduce font
+        if len(lines) <= 4:  # Can handle with more lines
+            visible_lines = len(lines)
+            style["visible_lines"] = visible_lines
+        else:  # Need font reduction
+            reduction_factor = 0.85
+            font_size = max(40, int(font_size * reduction_factor))
+            # Recalculate line height with new font size
+            line_height = int(font_size * 1.2)
     
     # Second pass: organize lines into pages
     pages = []
@@ -382,7 +631,14 @@ def create_karaoke_captions(
             page_transitions.append((page_start, page_end))
     
     # Calculate base position for caption window (at bottom of screen)
-    base_y = int(video_height - bottom_padding - (visible_lines * line_height))
+    # For consistent positioning, use a fixed visible_lines value if enabled
+    if style.get("consistent_positioning", True):
+        # Use a consistent baseline for positioning regardless of actual line count
+        base_visible_lines = style.get("base_visible_lines", 3)
+        base_y = int(video_height - bottom_padding - (base_visible_lines * line_height))
+    else:
+        # Use dynamic positioning based on actual visible lines
+        base_y = int(video_height - bottom_padding - (visible_lines * line_height))
     
     # Create clips for all words
     clips = []
@@ -393,7 +649,7 @@ def create_karaoke_captions(
         for line_idx, line in enumerate(page):
             # Calculate starting x position for this line (center-aligned)
             line_width = sum(word[3] for word in line) + word_spacing * (len(line) - 1)
-            start_x = (video_width - line_width) / 2
+            start_x = int((video_width - line_width) / 2)  # Ensure integer positioning
             
             current_x = start_x
             
@@ -426,54 +682,74 @@ def create_karaoke_captions(
                     if start_time > page_start:
                         # Create shadow with slight offset for cleaner look
                         shadow_before = TextClip(
-                            word + " ",
+                            word,  # Space is already in the word if preserve_spacing is enabled
                             font=font,
                             fontsize=font_size,
                             color="black"
                         )
-                        shadow_before = shadow_before.set_position((int(current_x + 2), int(y_position + 2)))
-                        shadow_before = shadow_before.set_start(page_start).set_end(start_time)
+                        # Use exact integer values for consistent rendering
+                        exact_x_before = int(current_x + 2)
+                        exact_y_before = int(y_position + 2)
+                        shadow_before = shadow_before.set_position((exact_x_before, exact_y_before))
+                        # Add buffer to timing for smoother transitions
+                        shadow_before = shadow_before.set_start(page_start).set_end(start_time - frame_buffer)
                         clips.append(shadow_before)
                         
                         # Then create white text on top
                         before_txt = TextClip(
-                            word + " ",
+                            word,  # Space is already in the word if preserve_spacing is enabled
                             font=font,
                             fontsize=font_size,
                             color=color
                         )
-                        before_txt = before_txt.set_position((int(current_x), int(y_position)))
-                        before_txt = before_txt.set_start(page_start).set_end(start_time)
+                        # Use exact integer values for consistent rendering
+                        exact_x_text = int(current_x)
+                        exact_y_text = int(y_position)
+                        before_txt = before_txt.set_position((exact_x_text, exact_y_text))
+                        # Add buffer to timing for smoother transitions
+                        before_txt = before_txt.set_start(page_start).set_end(start_time - frame_buffer)
                         clips.append(before_txt)
                     
                     # After highlight (if applicable)
                     if end_time < page_end:
                         # Create shadow with slight offset for cleaner look
                         shadow_after = TextClip(
-                            word + " ",
+                            word,  # Space is already in the word if preserve_spacing is enabled
                             font=font,
                             fontsize=font_size,
                             color="black"
                         )
-                        shadow_after = shadow_after.set_position((int(current_x + 2), int(y_position + 2)))
-                        shadow_after = shadow_after.set_start(end_time).set_end(page_end)
+                        # Use exact integer values for consistent rendering
+                        exact_x_after = int(current_x + 2)
+                        exact_y_after = int(y_position + 2)
+                        shadow_after = shadow_after.set_position((exact_x_after, exact_y_after))
+                        # Add buffer to timing for smoother transitions
+                        shadow_after = shadow_after.set_start(end_time + frame_buffer).set_end(page_end)
                         clips.append(shadow_after)
                         
                         # Then create white text on top
                         after_txt = TextClip(
-                            word + " ",
+                            word,  # Space is already in the word if preserve_spacing is enabled
                             font=font,
                             fontsize=font_size,
                             color=color
                         )
-                        after_txt = after_txt.set_position((int(current_x), int(y_position)))
-                        after_txt = after_txt.set_start(end_time).set_end(page_end)
+                        # Use exact integer values for consistent rendering
+                        exact_x_text = int(current_x)
+                        exact_y_text = int(y_position)
+                        after_txt = after_txt.set_position((exact_x_text, exact_y_text))
+                        # Add buffer to timing for smoother transitions
+                        after_txt = after_txt.set_start(end_time + frame_buffer).set_end(page_end)
                         clips.append(after_txt)
                     
                     # Highlighted word clip - only visible during its timing
                     # Calculate overlap with page
                     overlap_start = max(start_time, page_start)
                     overlap_end = min(end_time, page_end)
+                    
+                    # Add buffer time for cleaner transitions
+                    overlap_start_buffered = overlap_start
+                    overlap_end_buffered = overlap_end - frame_buffer
                     
                     # TikTok boxed highlighting style
                     if highlight_use_box:
@@ -485,7 +761,9 @@ def create_karaoke_captions(
                             
                             margin_x = 15
                             margin_y = 10
-                            box_width = int(word_width + 1.8 * margin_x)
+                            
+                            # IMPROVEMENT 3: Improve box highlight sizing to prevent overflow
+                            box_width = int(word_width + min(margin_x * 1.5, max(10, word_width * 0.15)))
                             box_height = int(font_size * 1.25)
                             
                             box = create_rounded_rectangle_clip(
@@ -495,51 +773,74 @@ def create_karaoke_captions(
                                 corner_radius=box_height // 2
                             )
                             
-                            box = box.set_position((current_x - margin_x, y_position + font_size/4.0 - (box_height - int(font_size * 1.0))/2))
-                            box = box.set_start(overlap_start).set_end(overlap_end)
+                            # Ensure exact integer positioning for consistent placement
+                            exact_x = int(current_x)
+                            exact_y = int(y_position)
                             
-                            shadow_text = TextClip(word, 
-                                                 fontsize=font_size, 
-                                                 font=font, 
-                                                 color="black")
+                            # Apply exact position to the box with proper margin
+                            box = box.set_position((exact_x - margin_x, exact_y + font_size/4.0 - (box_height - int(font_size * 1.0))/2))
                             
-                            shadow_text = shadow_text.set_position((current_x + 2, y_position + 2))
+                            # Set timing with buffer
+                            box = box.set_start(overlap_start_buffered).set_end(overlap_end_buffered)
+                            
+                            # Add space after word for consistent spacing during highlight
+                            shadow_text = TextClip(
+                                word,  # Space is already in the word if preserve_spacing is enabled
+                                fontsize=font_size, 
+                                font=font, 
+                                color="black"
+                            )
+                            
+                            shadow_text = shadow_text.set_position((exact_x + 2, exact_y + 2))
                             shadow_text = shadow_text.set_start(overlap_start).set_end(overlap_end)
                             
-                            highlighted_text = TextClip(word, 
-                                                       fontsize=font_size, 
-                                                       font=font, 
-                                                       color="white")
+                            # Add space after word for consistent spacing during highlight
+                            highlighted_text = TextClip(
+                                word,  # Space is already in the word if preserve_spacing is enabled
+                                fontsize=font_size, 
+                                font=font, 
+                                color="white"
+                            )
                             
-                            highlighted_text = highlighted_text.set_position((current_x, y_position))
+                            highlighted_text = highlighted_text.set_position((exact_x, exact_y))
                             highlighted_text = highlighted_text.set_start(overlap_start).set_end(overlap_end)
                             
                             clips.append(box)
                             clips.append(shadow_text)
                             clips.append(highlighted_text)
                         except Exception as e:
-                            shadow_fallback = TextClip(word, 
-                                                     fontsize=font_size, 
-                                                     font=font, 
-                                                     color="black")
+                            # Ensure exact integer positioning for consistent placement
+                            exact_x = int(current_x)
+                            exact_y = int(y_position)
                             
-                            shadow_fallback = shadow_fallback.set_position((current_x + 2, y_position + 2))
+                            # Add space in fallback case as well
+                            shadow_fallback = TextClip(
+                                word,  # Space is already in the word if preserve_spacing is enabled
+                                fontsize=font_size, 
+                                font=font, 
+                                color="black"
+                            )
+                            
+                            shadow_fallback = shadow_fallback.set_position((exact_x + 2, exact_y + 2))
                             shadow_fallback = shadow_fallback.set_start(overlap_start).set_end(overlap_end)
                             clips.append(shadow_fallback)
                             
-                            highlighted_text = TextClip(word, 
-                                                       fontsize=font_size, 
-                                                       font=font, 
-                                                       color=highlight_color)
+                            # Add space in fallback case as well
+                            highlighted_text = TextClip(
+                                word,  # Space is already in the word if preserve_spacing is enabled
+                                fontsize=font_size, 
+                                font=font, 
+                                color=highlight_color
+                            )
                             
-                            highlighted_text = highlighted_text.set_position((current_x, y_position))
+                            highlighted_text = highlighted_text.set_position((exact_x, exact_y))
                             highlighted_text = highlighted_text.set_start(overlap_start).set_end(overlap_end)
                             clips.append(highlighted_text)
                     else:
                         # Standard highlighting (just change text color)
                         # Create shadow with slight offset for cleaner look
                         shadow_highlight = TextClip(
-                            word + " ",
+                            word,  # Space is already in the word if preserve_spacing is enabled
                             font=font,
                             fontsize=font_size,
                             color="black"
@@ -550,7 +851,7 @@ def create_karaoke_captions(
                         
                         # Then create highlighted text on top
                         highlight_txt = TextClip(
-                            word + " ",
+                            word,  # Space is already in the word if preserve_spacing is enabled
                             font=font,
                             fontsize=font_size,
                             color=highlight_color
@@ -564,6 +865,346 @@ def create_karaoke_captions(
     
     return clips
 
+def create_unified_karaoke_captions(
+    word_timings: List[Tuple[str, float, float]],
+    video_width: int,
+    video_height: int,
+    style: Dict[str, Any]
+) -> List[TextClip]:
+    """
+    Create TikTok-style karaoke captions with a unified rendering approach.
+    Instead of creating individual TextClips for each word, this creates entire lines
+    as single clips and uses composition for highlighting.
+    
+    Args:
+        word_timings: List of (word, start_time, end_time) tuples
+        video_width: Width of the video
+        video_height: Height of the video
+        style: Dictionary of style parameters
+            
+    Returns:
+        List[TextClip]: List of text clips for each line and transition
+    """
+    if not word_timings:
+        return []
+    
+    # Extract core style parameters
+    font = style.get("font", "Arial-Bold")
+    font_size = style.get("font_size", 60)
+    color = style.get("color", "white")
+    highlight_color = style.get("highlight_color", "#ff5c5c")
+    highlight_bg_color = convert_color_to_rgb(style.get("highlight_bg_color", (255, 191, 0)))
+    
+    # Layout parameters
+    bottom_padding = style.get("bottom_padding", 80)
+    visible_lines = style.get("visible_lines", 2)
+    word_spacing = style.get("word_spacing", 10)
+    line_height = int(font_size * 1.2)
+    use_box_highlighting = style.get("highlight_use_box", False)
+    
+    # Apply timing adjustment to compensate for perception delay, if enabled
+    use_timing_adjustment = style.get("use_timing_adjustment", True)
+    if use_timing_adjustment:
+        # Get base timing adjustment
+        base_adjustment = style.get("timing_adjustment", 0.6)
+        
+        # Get TTS provider if available
+        tts_provider = style.get("tts_provider", "unrealspeech")
+        
+        # Calculate total duration for rate analysis
+        if word_timings:
+            sentence_duration = word_timings[-1][2] - word_timings[0][1] 
+            total_words = len(word_timings)
+        else:
+            sentence_duration = 0
+            total_words = 0
+        
+        adjusted_word_timings = []
+        
+        for i, (word, start_time, end_time) in enumerate(word_timings):
+            # Calculate dynamic adjustment for this specific word
+            dynamic_adjustment = calculate_dynamic_timing_adjustment(
+                word=word, 
+                index=i, 
+                total_words=total_words,
+                sentence_duration=sentence_duration, 
+                base_adjustment=base_adjustment,
+                tts_provider=tts_provider
+            )
+            
+            # Adjust start and end times using the dynamic adjustment
+            adjusted_start = max(0, start_time - dynamic_adjustment)
+            # Add a tiny buffer at the end to prevent perfect frame alignment issues
+            adjusted_end = max(adjusted_start + 0.05, end_time - dynamic_adjustment)
+            adjusted_word_timings.append((word, adjusted_start, adjusted_end))
+            
+            # Log the adjustment used for debugging (every 10th word)
+            if i % 10 == 0:
+                logger.debug(f"Unified: Word '{word}': base_adj={base_adjustment:.2f}, dynamic_adj={dynamic_adjustment:.2f}")
+        
+        # Use adjusted timings for the rest of the function
+        word_timings = adjusted_word_timings
+    
+    # Clean word timings - just remove <SPLIT> markers and trim whitespace
+    cleaned_word_timings = []
+    full_text = ""
+    
+    for word, start_time, end_time in word_timings:
+        # Remove <SPLIT> markers and clean
+        cleaned_word = word.replace("<SPLIT>", "").strip()
+        
+        # Skip empty words
+        if not cleaned_word:
+            continue
+        
+        # Add to full text and word timings
+        full_text += cleaned_word + " "
+        cleaned_word_timings.append((cleaned_word, start_time, end_time))
+    
+    word_timings = cleaned_word_timings
+    
+    # Calculate max line width
+    max_line_width = int(video_width * style.get("max_line_width_ratio", 0.85))
+    
+    # Calculate total duration from word timings
+    if word_timings:
+        total_duration = word_timings[-1][2]  # End time of last word
+    else:
+        total_duration = 0
+    
+    # Organize words into lines
+    lines = []
+    current_line = []
+    current_line_text = ""
+    current_line_width = 0
+    
+    for word, start, end in word_timings:
+        # Test if adding this word would exceed max width
+        test_text = current_line_text + word + " "
+        
+        # Use the utility function to create a temporary clip for measurement
+        temp_clip = create_text_clip(test_text, font, font_size, color)
+        test_width = temp_clip.w
+        temp_clip.close()
+        
+        if test_width > max_line_width and current_line:
+            # Add current line and start a new one
+            lines.append({
+                "words": current_line,
+                "text": current_line_text.strip(),
+                "start_time": current_line[0][1],
+                "end_time": current_line[-1][2]
+            })
+            current_line = [(word, start, end)]
+            current_line_text = word + " "
+            current_line_width = 0
+        else:
+            # Add to current line
+            current_line.append((word, start, end))
+            current_line_text = test_text
+    
+    # Add the last line if not empty
+    if current_line:
+        lines.append({
+            "words": current_line,
+            "text": current_line_text.strip(),
+            "start_time": current_line[0][1],
+            "end_time": current_line[-1][2]
+        })
+    
+    # Calculate appropriate "pages" of lines
+    pages = []
+    current_page = []
+    
+    for line in lines:
+        current_page.append(line)
+        if len(current_page) >= visible_lines:
+            pages.append(current_page)
+            current_page = []
+    
+    # Add last page if not empty
+    if current_page:
+        pages.append(current_page)
+    
+    # Calculate position for the caption block
+    if style.get("consistent_positioning", True):
+        # Get consistent base position
+        base_visible_lines = style.get("base_visible_lines", 3)
+        base_y = int(video_height - bottom_padding - (base_visible_lines * line_height))
+    else:
+        base_y = int(video_height - bottom_padding - (visible_lines * line_height))
+    
+    # Generate the clips
+    all_clips = []
+    
+    # For each page
+    for page_idx, page in enumerate(pages):
+        page_start_time = min(line["start_time"] for line in page)
+        page_end_time = max(line["end_time"] for line in page)
+        
+        # For each line in the page
+        for line_idx, line in enumerate(page):
+            # Calculate y position for this line
+            y_position = int(base_y + (line_idx * line_height))
+            
+            # Create a clip for the full line to serve as the background/unhighlighted version
+            line_text = line["text"]
+            
+            # Use the utility function to create line clips
+            line_clip = create_text_clip(
+                text=line_text,
+                font=font,
+                font_size=font_size,
+                color=color,
+                stroke_color="black",
+                stroke_width=1
+            )
+            
+            # Center the line
+            line_width = line_clip.w
+            line_x = int((video_width - line_width) / 2)
+            
+            # Create shadow effect using utility function
+            shadow_clip = create_shadow_text_clip(
+                text=line_text,
+                font=font,
+                font_size=font_size,
+                position=(line_x, y_position),
+                start_time=page_start_time,
+                end_time=page_end_time
+            )
+            all_clips.append(shadow_clip)
+            
+            # Add the base line using utility function
+            positioned_line_clip = create_text_clip(
+                text=line_text,
+                font=font,
+                font_size=font_size,
+                color=color,
+                position=(line_x, y_position),
+                start_time=page_start_time,
+                end_time=page_end_time
+            )
+            all_clips.append(positioned_line_clip)
+            
+            # Process each word for highlighting
+            line_words = line["words"]
+            
+            # Calculate total width of characters up to each word
+            # to determine highlighting positions
+            word_positions = []
+            current_position = 0
+            
+            for i, (word, _, _) in enumerate(line_words):
+                # Get text up to current word
+                if i == 0:
+                    prefix = ""
+                else:
+                    prefix = " ".join([w[0] for w in line_words[:i]])
+                    if not prefix.endswith(" "):
+                        prefix += " "
+                
+                # Calculate position of this word
+                if prefix:
+                    prefix_clip = create_text_clip(prefix, font, font_size, color)
+                    current_position = prefix_clip.w
+                    prefix_clip.close()
+                
+                word_positions.append(current_position)
+                
+                # Add word length for next iteration
+                word_clip = create_text_clip(word, font, font_size, color)
+                word_width = word_clip.w
+                word_clip.close()
+                
+                current_position += word_width + word_spacing
+            
+            # Create highlight clips for each word
+            for i, ((word, start_time, end_time), word_pos) in enumerate(zip(line_words, word_positions)):
+                # Add timing buffer to prevent overlaps
+                buffer_time = style.get("timing_buffer", 0.05)  # 50ms default buffer
+                
+                # Adjust timing to prevent overlapping highlights
+                if i > 0:
+                    prev_end = line_words[i-1][2]
+                    if start_time < prev_end + buffer_time:
+                        start_time = prev_end + buffer_time
+                
+                if use_box_highlighting:
+                    # Create a boxed highlight
+                    word_clip = create_text_clip(word, font, font_size, color)
+                    word_width = word_clip.w
+                    word_clip.close()
+                    
+                    # Create rounded box
+                    margin_x = 15
+                    margin_y = 10
+                    box_width = int(word_width + min(margin_x * 1.5, max(10, word_width * 0.15)))
+                    box_height = int(font_size * 1.25)
+                    
+                    box = create_rounded_rectangle_clip(
+                        width=box_width,
+                        height=box_height,
+                        color=highlight_bg_color,
+                        corner_radius=box_height // 2
+                    )
+                    
+                    # Position box relative to line
+                    box_x = line_x + word_pos - margin_x
+                    box_y = y_position + font_size/4.0 - (box_height - int(font_size * 1.0))/2
+                    
+                    box = box.set_position((int(box_x), int(box_y)))
+                    box = box.set_start(start_time).set_end(end_time)
+                    all_clips.append(box)
+                    
+                    # Add highlighted word on top of box (shadow and text)
+                    shadow_highlight = create_shadow_text_clip(
+                        text=word,
+                        font=font,
+                        font_size=font_size,
+                        position=(line_x + word_pos, y_position),
+                        start_time=start_time,
+                        end_time=end_time
+                    )
+                    all_clips.append(shadow_highlight)
+                    
+                    # Main highlighted text
+                    highlight_word = create_text_clip(
+                        text=word,
+                        font=font,
+                        font_size=font_size,
+                        color="white",  # White text on colored box
+                        position=(int(line_x + word_pos), int(y_position)),
+                        start_time=start_time,
+                        end_time=end_time
+                    )
+                    all_clips.append(highlight_word)
+                else:
+                    # Simple color highlighting (shadow and text)
+                    shadow_highlight = create_shadow_text_clip(
+                        text=word,
+                        font=font,
+                        font_size=font_size,
+                        position=(line_x + word_pos, y_position),
+                        start_time=start_time,
+                        end_time=end_time
+                    )
+                    all_clips.append(shadow_highlight)
+                    
+                    # Main highlighted text
+                    highlight_word = create_text_clip(
+                        text=word,
+                        font=font,
+                        font_size=font_size,
+                        color=highlight_color,
+                        position=(int(line_x + word_pos), int(y_position)),
+                        start_time=start_time,
+                        end_time=end_time
+                    )
+                    all_clips.append(highlight_word)
+    
+    return all_clips
+
 def add_karaoke_captions_to_video(
     video: VideoFileClip,
     word_timings: List[Tuple[str, float, float]],
@@ -576,20 +1217,6 @@ def add_karaoke_captions_to_video(
         video: The video clip to add captions to
         word_timings: List of (word, start_time, end_time) tuples
         style: Dictionary of style parameters
-            - font: Font name
-            - font_size: Font size
-            - color: Regular text color
-            - highlight_color: Color for highlighted words
-            - highlight_bg_color: Background color for highlighted words (for boxed style)
-            - stroke_color: Outline color
-            - stroke_width: Outline width
-            - bg_color: Background color (with alpha)
-            - use_background: Whether to use a background (default: False)
-            - highlight_use_box: Whether to use box highlighting style (default: False)
-            - visible_lines: Number of lines to show at once (default: 2)
-            - bottom_padding: Padding from bottom of screen (default: 80)
-            - timing_adjustment: Milliseconds to adjust timing to compensate for delay (default: 200ms)
-            - use_timing_adjustment: Whether to apply timing adjustment (default: True)
             
     Returns:
         VideoFileClip: Video with karaoke captions
@@ -610,45 +1237,27 @@ def add_karaoke_captions_to_video(
         # Default bottom padding for portrait
         if style.get("bottom_padding") is None:
             style["bottom_padding"] = 150
-            
-        # Default timing adjustment for portrait format
-        if style.get("timing_adjustment") is None:
-            style["timing_adjustment"] = 0.2  # 200ms
-            
-        # Default to using timing adjustment
-        if "use_timing_adjustment" not in style:
-            style["use_timing_adjustment"] = True
     elif width > height:  # Landscape format
-        # For landscape format, adjust font size and bottom padding
-        if style.get("font_size") in [70, 100]:
-            # Reduce font size for landscape format
-            style["font_size"] = int(style.get("font_size") * 0.7)
+        current_font_size = style.get("font_size", 60)
+        
+        # Apply a consistent scaling factor for landscape
+        landscape_scale_factor = 0.7
+            
+        # Apply the scaling
+        style["font_size"] = max(40, int(current_font_size * landscape_scale_factor))
             
         # Adjust bottom padding for landscape format
         if style.get("bottom_padding") in [80, 150]:
             # Use a smaller bottom padding for landscape format
             style["bottom_padding"] = 60
             
-        # Increase visible lines for landscape format since we have more horizontal space
-        if style.get("visible_lines") == 2:
-            # Landscape has more horizontal space, so we can show more lines
-            style["visible_lines"] = 3
-            
         # Adjust max line width to use more horizontal space
         if "max_line_width_ratio" not in style:
             # Use more of the horizontal space in landscape mode
             style["max_line_width_ratio"] = 0.95  # 95% of video width
-            
-        # Use larger timing adjustment for landscape format
-        if style.get("timing_adjustment") is None:
-            style["timing_adjustment"] = 0.25  # 250ms for landscape
-            
-        # Default to using timing adjustment
-        if "use_timing_adjustment" not in style:
-            style["use_timing_adjustment"] = True
     
-    # Create karaoke caption clips
-    caption_clips = create_karaoke_captions(
+    # Use the new unified caption method
+    caption_clips = create_unified_karaoke_captions(
         word_timings=word_timings,
         video_width=width,
         video_height=height,

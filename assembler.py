@@ -6,7 +6,8 @@ Responsible for:
 - Handling final video export with all elements combined
 """
 
-from pathlib import Path as PathLib
+import logging
+from pathlib import Path
 from typing import Dict, List
 
 from moviepy.editor import (
@@ -20,12 +21,69 @@ from moviepy.editor import (
 )
 from moviepy.video.fx import all as vfx
 
+# Configure logging
+logger = logging.getLogger(__name__)
+
 class VideoAssembler:
     def __init__(self):
         """Initialize the video assembler"""
         # Create output directory
-        self.output_dir = PathLib("final_videos")
+        self.output_dir = Path("final_videos")
         self.output_dir.mkdir(exist_ok=True)
+        
+    def _prepare_output_path(self, output_path: str) -> str:
+        """
+        Prepare the output path for saving a video.
+        
+        Args:
+            output_path: Path to save the final video
+            
+        Returns:
+            str: Normalized output path with proper extension
+        """
+        # Ensure output path has .mp4 extension
+        output_path = str(self.output_dir / Path(output_path))
+        if not output_path.endswith('.mp4'):
+            output_path += '.mp4'
+        return output_path
+        
+    def _write_video_file(self, clip, output_path: str, is_high_quality: bool = True) -> None:
+        """
+        Write video clip to file with optimized parameters.
+        
+        Args:
+            clip: The video clip to write
+            output_path: Path to save the video
+            is_high_quality: Whether to use higher quality settings (YouTube compatible)
+        """
+        # Set video and audio encoding parameters based on quality setting
+        if is_high_quality:
+            # High quality settings (YouTube optimized)
+            bitrate = "8000k"        # High quality bitrate
+            audio_bitrate = "192k"   # Good audio quality
+            format_name = "High Quality (YouTube compatible)"
+        else:
+            # Standard quality settings
+            bitrate = "4000k"        # Standard bitrate
+            audio_bitrate = "128k"   # Standard audio quality
+            format_name = "Standard Quality"
+            
+        logger.info(f"Writing video with {format_name} settings to {output_path}")
+        logger.info(f"- Video bitrate: {bitrate}")
+        logger.info(f"- Audio bitrate: {audio_bitrate}")
+            
+        # Write the video file with selected settings
+        clip.write_videofile(
+            output_path,
+            codec="libx264",
+            audio_codec="aac",
+            bitrate=bitrate,
+            audio_bitrate=audio_bitrate,
+            fps=24,
+            threads=4,        # Use multiple threads for faster encoding
+            preset="medium",  # Balance between speed and quality
+            remove_temp=True  # Clean up temporary files
+        )
 
     def _create_scene_clip(self, scene: Dict, index: int) -> CompositeVideoClip:
         """
@@ -39,7 +97,7 @@ class VideoAssembler:
         Returns:
             CompositeVideoClip: The assembled scene clip
         """
-        print(f"Rendering scene {index + 1}...")
+        logger.info(f"Rendering scene {index + 1}...")
         
         # Load video/image and audio
         if scene.get("final_clip"):
@@ -47,60 +105,45 @@ class VideoAssembler:
             base_clip = scene["final_clip"]
         else:
             # Load from file
-            base_clip = VideoFileClip(scene["video_path"])
+            base_clip = VideoFileClip(scene["media_path"])
         
-        # Handle multiple audio files if present
-        if "audio_paths" in scene and len(scene["audio_paths"]) > 1:
+        # Process audio
+        if "audio_paths" in scene:
+            # Handle multiple audio parts
             audio_clips = [AudioFileClip(path) for path in scene["audio_paths"]]
             audio = concatenate_audioclips(audio_clips)
         else:
+            # Backwards compatibility for single audio path
             audio = AudioFileClip(scene["audio_path"])
         
-        # Get the caption clips
+        # Process captions
         caption_clips = scene.get("caption_clips", [])
-        if not caption_clips and "caption_clip" in scene:  # Backward compatibility
-            caption_clips = [scene["caption_clip"]]
-            
-        # Clean any <SPLIT> markers from caption clips if needed
-        # This is a safety check in case they weren't cleaned earlier
-        cleaned_caption_clips = []
-        for clip in caption_clips:
-            # We can't directly modify the text in an existing TextClip,
-            # but we can ensure it's properly positioned and timed
-            cleaned_caption_clips.append(clip)
         
-        # Create composite with all captions
-        clips = [base_clip] + cleaned_caption_clips
-        composite = CompositeVideoClip(
-            clips,
-            size=base_clip.size
-        )
+        # Combine base video with caption clips
+        components = [base_clip] + caption_clips
+        composite = CompositeVideoClip(components, size=base_clip.size)
         
-        # Set audio
-        composite = composite.set_audio(audio)
-        
-        # Add fade in and fade out for smooth transitions
-        # This creates a smoother transition between scenes when concatenated
-        fade_duration = 0.3  # Shorter fade duration for subtle effect
-        composite = composite.fx(vfx.fadein, fade_duration)
-        composite = composite.fx(vfx.fadeout, fade_duration)
-        
-        # Ensure the clip duration exactly matches the audio duration
-        # This is critical for preventing sync issues, especially with multiple narration parts
-        if composite.duration != audio.duration:
-            print(f"Adjusting scene {index + 1} duration from {composite.duration:.2f}s to {audio.duration:.2f}s")
+        # Ensure composite duration matches audio
+        if composite.duration < audio.duration:
+            # Extend video duration to match audio
+            composite = composite.set_duration(audio.duration)
+        elif composite.duration > audio.duration:
+            # Log warning about mismatched durations but don't trim 
+            # (let the video assembler handle this at the scene level if needed)
+            logger.info(f"Adjusting scene {index + 1} duration from {composite.duration:.2f}s to {audio.duration:.2f}s")
             composite = composite.set_duration(audio.duration)
         
-        # Scene details
-        print(f"Scene {index + 1} details:")
-        print(f"- Video duration: {base_clip.duration:.2f}s")
-        print(f"- Audio duration: {audio.duration:.2f}s")
-        print(f"- Number of caption parts: {len(caption_clips)}")
+        # Log detailed information about the assembled clip
+        logger.info(f"Scene {index + 1} details:")
+        logger.info(f"- Video duration: {base_clip.duration:.2f}s")
+        logger.info(f"- Audio duration: {audio.duration:.2f}s")
+        logger.info(f"- Number of caption parts: {len(caption_clips)}")
         for i, cap in enumerate(caption_clips, 1):
-            print(f"  - Caption part {i} duration: {cap.duration:.2f}s")
-        print(f"- Final duration: {composite.duration:.2f}s")
+            logger.info(f"  - Caption part {i} duration: {cap.duration:.2f}s")
+        logger.info(f"- Final duration: {composite.duration:.2f}s")
         
-        return composite
+        # Set audio and return
+        return composite.set_audio(audio)
 
     def assemble_scenes(
         self,
@@ -111,149 +154,98 @@ class VideoAssembler:
         optimize_for_youtube: bool = True  # New parameter to optimize for YouTube
     ) -> str:
         """
-        Assembles multiple scenes into a final video with smooth transitions.
+        Assembles all scenes into a final video with proper transitions.
+        Now handles scenes with multiple narration parts properly.
         
         Args:
-            scenes: List of scene dictionaries from SceneBuilder
-            output_path: Path where to save the final video
-            fps: Frames per second for the output video (default: 24)
-            transition_duration: Duration of cross-dissolve transitions between scenes
-            optimize_for_youtube: Whether to optimize settings for YouTube (default: True)
-        
+            scenes: List of scene dictionaries with components
+            output_path: Path to save the final video
+            fps: Frames per second for the video (default: 24)
+            transition_duration: Duration of transitions between scenes (default: 0.5s)
+            optimize_for_youtube: Whether to use settings optimized for YouTube (default: True)
+            
         Returns:
-            str: Path to the final assembled video
+            str: Path to the assembled video file
         """
         try:
-            print("\nStarting video assembly...")
+            logger.info("Starting video assembly...")
             
-            # Create scene clips
+            # Prepare output path
+            output_path = self._prepare_output_path(output_path)
+                
+            # Render all scenes
             scene_clips = []
-            total_duration = 0
-            
             for i, scene in enumerate(scenes):
-                # Create the composite scene
                 clip = self._create_scene_clip(scene, i)
                 scene_clips.append(clip)
-                total_duration += clip.duration
-                print(f"Scene {i + 1} rendered successfully")
-                print(f"Scene duration: {clip.duration:.2f}s")
-
-            print(f"\nTotal video duration will be: {total_duration:.2f}s")
+                logger.info(f"Scene {i + 1} rendered successfully")
+                logger.info(f"Scene duration: {clip.duration:.2f}s")
             
-            # Create a background layer as a safety measure (slightly dark gray)
-            # This ensures there's always something visible during transitions
-            background = ColorClip(
-                size=scene_clips[0].size, 
-                color=(30, 30, 30),  # Dark gray background
-                duration=total_duration
-            )
+            # Calculate total duration
+            total_duration = sum(clip.duration for clip in scene_clips)
+            logger.info(f"Total video duration will be: {total_duration:.2f}s")
             
-            # Concatenate all scenes with smooth transitions
-            print("\nConcatenating scenes...")
-            if len(scene_clips) > 1:
-                # Apply audio crossfades to each clip before concatenation
-                # This creates smoother audio transitions between scenes
-                for i in range(len(scene_clips)):
-                    # Get the audio from the clip
-                    audio = scene_clips[i].audio
-                    
-                    # Apply audio fade in/out to match video transitions
-                    if audio is not None:
-                        # Apply audio fade in at the beginning
-                        if i == 0:
-                            # Only fade in for first clip
-                            audio = audio.audio_fadein(0.3)
-                        else:
-                            # Fade in and out for middle clips
-                            audio = audio.audio_fadein(0.3)
-                        
-                        # Apply audio fade out at the end
-                        if i == len(scene_clips) - 1:
-                            # Only fade out for last clip
-                            audio = audio.audio_fadeout(0.3)
-                        else:
-                            # Fade in and out for middle clips
-                            audio = audio.audio_fadeout(0.3)
-                        
-                        # Set the modified audio back to the clip
-                        scene_clips[i] = scene_clips[i].set_audio(audio)
+            # Add transitions between scenes if requested
+            if len(scene_clips) > 1 and transition_duration > 0:
+                logger.info("Adding cross-dissolve transitions between scenes...")
                 
-                # Simple approach: just concatenate the clips
-                # Now with audio crossfades to match video transitions
-                final_video = concatenate_videoclips(scene_clips)
+                # Create clips with transitions using a cross-dissolve effect
+                # In older MoviePy versions, we need to apply transitions manually to clips
+                clips_with_transitions = []
                 
-                # Add the background to ensure no transparency issues
-                final_video = CompositeVideoClip(
-                    [background, final_video],
-                    size=scene_clips[0].size
+                for i, clip in enumerate(scene_clips):
+                    if i == 0:  # First clip stays as is
+                        clips_with_transitions.append(clip)
+                    else:
+                        # Apply cross dissolve effect to transition from previous clip
+                        # We'll keep full clip duration but add the transition effect
+                        with_transition = clip.crossfadein(transition_duration)
+                        clips_with_transitions.append(with_transition)
+                
+                # Use 'compose' method to overlap clips at their transition points
+                final_clip = concatenate_videoclips(
+                    clips_with_transitions,
+                    method="compose",
+                    padding=-transition_duration
                 )
+                
+                logger.info(f"Added {len(scene_clips)-1} transitions of {transition_duration}s each")
             else:
-                # Only one scene
-                final_video = CompositeVideoClip(
-                    [background, scene_clips[0]],
-                    size=scene_clips[0].size
-                )
+                # Simple concatenation without transitions
+                final_clip = concatenate_videoclips(scene_clips, method="chain")
             
-            # Ensure output path has .mp4 extension
-            output_path = str(self.output_dir / PathLib(output_path))
-            if not output_path.endswith('.mp4'):
-                output_path += '.mp4'
-            
-            # Determine optimal settings based on video format and YouTube standards
+            # Set video and audio encoding parameters (for better quality/compatibility)
+            # These settings are optimized for good quality/size balance on YouTube
             if optimize_for_youtube:
-                # Get video dimensions to determine format
-                width, height = final_video.size
-                
-                # Determine video format based on aspect ratio
-                if width > height:  # Landscape format
-                    format_name = "YouTube Landscape"
-                    # YouTube recommends 8-12 Mbps for 1080p landscape
-                    video_bitrate = "10000k"
-                elif width < height:  # Short/vertical format
-                    format_name = "YouTube Shorts"
-                    # YouTube Shorts can use slightly lower bitrate (6-9 Mbps)
-                    video_bitrate = "8000k"
-                else:  # Square format
-                    format_name = "Square"
-                    # Use a middle-ground bitrate for square format
-                    video_bitrate = "9000k"
-                
-                # Set audio bitrate based on YouTube recommendations
-                audio_bitrate = "192k"  # YouTube recommends at least 128k, we use 192k for better quality
-                
-                print(f"\nOptimizing for {format_name} format:")
-                print(f"- Video dimensions: {width}x{height}")
-                print(f"- Video bitrate: {video_bitrate}")
-                print(f"- Audio bitrate: {audio_bitrate}")
-                print(f"- FPS: {fps}")
+                # YouTube recommended settings
+                width, height = 1920, 1080  # Full HD
+                format_name = "Full HD (1080p)"
             else:
-                # Use default high quality settings
-                video_bitrate = "8000k"
-                audio_bitrate = "160k"
+                # Default HD settings
+                width, height = 1280, 720   # HD Ready
+                format_name = "HD (720p)"
             
-            # Write final video with optimized settings
-            print(f"\nWriting final video to {output_path}...")
-            final_video.write_videofile(
-                output_path,
-                fps=fps,  # Using specified fps (default 24)
-                codec='libx264',
-                audio_codec='aac',
-                bitrate=video_bitrate,  # Optimized bitrate based on format
-                audio_bitrate=audio_bitrate,  # Explicit audio bitrate
-                threads=4,        # Use multiple threads
-                preset='slow'     # Better compression
-            )
+            logger.info(f"Optimizing for {format_name} format:")
+            logger.info(f"- Video dimensions: {width}x{height}")
+            logger.info(f"- FPS: {fps}")
+            
+            # Check if we need to resize the video
+            if final_clip.size != (width, height):
+                final_clip = final_clip.resize(height=height)
+            
+            # Write the final video with optimized settings
+            self._write_video_file(final_clip, output_path, optimize_for_youtube)
             
             # Clean up
-            final_video.close()
             for clip in scene_clips:
                 clip.close()
+            final_clip.close()
             
-            print("\nVideo assembly completed successfully!")
+            logger.info("Video assembly completed successfully!")
             return output_path
             
         except Exception as e:
-            print(f"\nError during video assembly: {str(e)}")
+            logger.error(f"Error during video assembly: {str(e)}")
             raise
         
     def combine_video_and_audio_only(
@@ -263,9 +255,7 @@ class VideoAssembler:
         output_path: str
     ) -> str:
         """
-        Basic utility method that only combines a video with an audio track.
-        Does NOT support captions, transitions, or other advanced features.
-        For full functionality, use assemble_scenes() instead.
+        Combines a video with an audio track without modifying the video content.
         
         Args:
             video_path: Path to the video file
@@ -275,20 +265,35 @@ class VideoAssembler:
         Returns:
             str: Path to the assembled video
         """
-        
-        video = VideoFileClip(video_path)
-        audio = AudioFileClip(audio_path)
-        
-        final = video.set_audio(audio)
-        final.write_videofile(
-            output_path,
-            fps=24,  # Use 24 fps to match source videos
-            codec='libx264',
-            audio_codec='aac'
-        )
-        
-        video.close()
-        audio.close()
-        final.close()
-        
-        return output_path 
+        try:
+            logger.info("Combining video and audio...")
+            
+            # Prepare output path
+            output_path = self._prepare_output_path(output_path)
+                
+            # Load video and audio
+            video = VideoFileClip(video_path)
+            audio = AudioFileClip(audio_path)
+            
+            # Set audio to video
+            final_clip = video.set_audio(audio)
+            
+            # Write the final clip using high quality settings
+            logger.info(f"Writing final video to {output_path}...")
+            self._write_video_file(final_clip, output_path, is_high_quality=True)
+            
+            # Clean up
+            video.close()
+            audio.close()
+            final_clip.close()
+            
+            logger.info("Video assembly completed successfully!")
+            return output_path
+
+
+
+
+            
+        except Exception as e:
+            logger.error(f"Error during video assembly: {str(e)}")
+            raise 
