@@ -198,34 +198,65 @@ def create_shadow_text_clip(
     end_time: float = None
 ) -> TextClip:
     """
-    Create a text clip with a shadow effect (black offset text behind main text).
+    Create a shadow effect for text by putting a black offset version behind it.
     
     Args:
-        text: Text content
+        text: The text content
         font: Font name
         font_size: Font size
-        position: (x,y) position tuple for the main text
-        shadow_offset: Pixel offset for the shadow (default: 2)
-        start_time: Optional start time
-        end_time: Optional end time
+        position: Position tuple (x, y)
+        shadow_offset: Offset for shadow in pixels
+        start_time: Start time in seconds
+        end_time: End time in seconds
         
     Returns:
         TextClip: The shadow text clip
     """
-    # Calculate shadow position (offset from main position)
-    x, y = position
-    shadow_position = (int(x + shadow_offset), int(y + shadow_offset))
-    
-    # Create the shadow clip
-    return create_text_clip(
-        text=text,
+    shadow = TextClip(
+        text,
         font=font,
-        font_size=font_size,
-        color="black",
-        position=shadow_position,
-        start_time=start_time,
-        end_time=end_time
+        fontsize=font_size,
+        color="black"
     )
+    
+    # Set exact integer position with offset
+    shadow_x, shadow_y = position
+    shadow = shadow.set_position((int(shadow_x + shadow_offset), int(shadow_y + shadow_offset)))
+    
+    # Set duration if provided
+    if start_time is not None and end_time is not None:
+        shadow = shadow.set_start(start_time).set_end(end_time)
+    
+    return shadow
+
+def apply_smooth_transitions(
+    clip,
+    word_duration: float,
+    crossfade_duration: float = 0.12,
+    min_word_duration_for_fade: float = 0.2,
+    max_fade_duration: float = 0.1
+) -> TextClip:
+    """
+    Apply smooth fade in/out transitions to a clip if the word duration is long enough.
+    
+    Args:
+        clip: The clip to apply transitions to
+        word_duration: Duration of the word in seconds
+        crossfade_duration: Desired crossfade duration
+        min_word_duration_for_fade: Minimum word duration to apply fades
+        max_fade_duration: Maximum fade duration in seconds
+        
+    Returns:
+        TextClip: Clip with transitions applied
+    """
+    # Only apply fades if word is long enough
+    if word_duration > min_word_duration_for_fade:
+        # Use either the crossfade value or max duration, whichever is smaller
+        fade_duration = min(crossfade_duration, max_fade_duration)
+        # Apply crossfades
+        clip = clip.crossfadein(fade_duration).crossfadeout(fade_duration)
+    
+    return clip
 
 def overlay_caption_on_video(
     video: VideoFileClip,
@@ -1130,6 +1161,17 @@ def create_unified_karaoke_captions(
                     if start_time < prev_end + buffer_time:
                         start_time = prev_end + buffer_time
                 
+                # Create crossfade effect for smoother transitions
+                crossfade_duration = style.get("crossfade_duration", 0.12)  # 120ms default crossfade
+                
+                # Calculate actual crossfade time (don't exceed word duration)
+                word_duration = end_time - start_time
+                actual_crossfade = min(crossfade_duration, word_duration * 0.4)
+                
+                # Adjust timings for crossfade effect
+                crossfade_start = max(0, start_time - actual_crossfade/2)
+                crossfade_end = min(total_duration, end_time + actual_crossfade/2)
+                
                 if use_box_highlighting:
                     # Create a boxed highlight
                     word_clip = create_text_clip(word, font, font_size, color)
@@ -1153,8 +1195,19 @@ def create_unified_karaoke_captions(
                     box_x = line_x + word_pos - margin_x
                     box_y = y_position + font_size/4.0 - (box_height - int(font_size * 1.0))/2
                     
+                    # Apply crossfade effect
                     box = box.set_position((int(box_x), int(box_y)))
-                    box = box.set_start(start_time).set_end(end_time)
+                    box = box.set_start(crossfade_start).set_end(crossfade_end)
+                    
+                    # Add fade in/out for smoother appearance
+                    box = apply_smooth_transitions(
+                        clip=box,
+                        word_duration=word_duration,
+                        crossfade_duration=actual_crossfade,
+                        min_word_duration_for_fade=0.2,
+                        max_fade_duration=0.1
+                    )
+                    
                     all_clips.append(box)
                     
                     # Add highlighted word on top of box (shadow and text)
@@ -1163,8 +1216,8 @@ def create_unified_karaoke_captions(
                         font=font,
                         font_size=font_size,
                         position=(line_x + word_pos, y_position),
-                        start_time=start_time,
-                        end_time=end_time
+                        start_time=crossfade_start,
+                        end_time=crossfade_end
                     )
                     all_clips.append(shadow_highlight)
                     
@@ -1175,8 +1228,8 @@ def create_unified_karaoke_captions(
                         font_size=font_size,
                         color="white",  # White text on colored box
                         position=(int(line_x + word_pos), int(y_position)),
-                        start_time=start_time,
-                        end_time=end_time
+                        start_time=crossfade_start,
+                        end_time=crossfade_end
                     )
                     all_clips.append(highlight_word)
                 else:
@@ -1186,8 +1239,8 @@ def create_unified_karaoke_captions(
                         font=font,
                         font_size=font_size,
                         position=(line_x + word_pos, y_position),
-                        start_time=start_time,
-                        end_time=end_time
+                        start_time=crossfade_start,
+                        end_time=crossfade_end
                     )
                     all_clips.append(shadow_highlight)
                     
@@ -1198,9 +1251,19 @@ def create_unified_karaoke_captions(
                         font_size=font_size,
                         color=highlight_color,
                         position=(int(line_x + word_pos), int(y_position)),
-                        start_time=start_time,
-                        end_time=end_time
+                        start_time=crossfade_start,
+                        end_time=crossfade_end
                     )
+                    
+                    # Add fade in/out for smoother color transitions
+                    highlight_word = apply_smooth_transitions(
+                        clip=highlight_word,
+                        word_duration=word_duration,
+                        crossfade_duration=actual_crossfade,
+                        min_word_duration_for_fade=0.2,
+                        max_fade_duration=0.08
+                    )
+                    
                     all_clips.append(highlight_word)
     
     return all_clips
