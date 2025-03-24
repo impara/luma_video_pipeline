@@ -303,7 +303,8 @@ def get_style_preset(preset_name: str) -> dict:
             "consistent_positioning": True,  # Ensure caption positioning is consistent
             "base_visible_lines": 3,  # Fixed number of lines for baseline positioning
             "word_spacing": 15,  # Extra space between words for clarity
-            "timing_buffer": 0.08  # 80ms buffer between highlighted words
+            "timing_buffer": 0.08,  # 80ms buffer between highlighted words
+            "crossfade_duration": 0.15  # 150ms crossfade for smooth transitions
         },
         "tiktok_minimal": {
             "font": "Arial",
@@ -315,7 +316,8 @@ def get_style_preset(preset_name: str) -> dict:
             "use_background": False,
             "bg_color": (0, 0, 0, 128),  # Semi-transparent black
             "visible_lines": 2,
-            "bottom_padding": 80
+            "bottom_padding": 80,
+            "crossfade_duration": 0.12  # 120ms crossfade for smooth transitions
         },
         "tiktok_boxed": {
             "font": "Arial-Black",  # Bolder font for TikTok style
@@ -330,7 +332,8 @@ def get_style_preset(preset_name: str) -> dict:
             "highlight_use_box": True,  # Use box highlighting style
             "visible_lines": 2,
             "bottom_padding": 150,  # Increased bottom padding for better positioning
-            "timing_adjustment": 1.0  # 1 second lead time for highlighting words
+            "timing_adjustment": 1.0,  # 1 second lead time for highlighting words
+            "crossfade_duration": 0.15  # 150ms crossfade for smooth transitions
         }
     }
     
