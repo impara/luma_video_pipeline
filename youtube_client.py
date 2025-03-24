@@ -30,9 +30,44 @@ SCOPES = ['https://www.googleapis.com/auth/youtube.upload',
           'https://www.googleapis.com/auth/youtube']
 
 # Default metadata if not specified
-DEFAULT_CATEGORY = "22"  # People & Blogs
+DEFAULT_CATEGORY = "27"  # Education (was 22 for People & Blogs)
 DEFAULT_PRIVACY = "private"  # Start with private for safety
 DEFAULT_TAGS = ["AI generated", "Video Pipeline"]
+
+# YouTube category ID mapping
+CATEGORY_MAPPING = {
+    "film & animation": "1",
+    "autos & vehicles": "2",
+    "music": "10",
+    "pets & animals": "15",
+    "sports": "17",
+    "short movies": "18",
+    "travel & events": "19",
+    "gaming": "20",
+    "videoblogging": "21",
+    "people & blogs": "22",
+    "comedy": "23",
+    "entertainment": "24",
+    "news & politics": "25",
+    "howto & style": "26",
+    "education": "27",
+    "science & technology": "28",
+    "nonprofits & activism": "29",
+    "movies": "30",
+    "anime/animation": "31",
+    "action/adventure": "32",
+    "classics": "33",
+    "documentary": "35",
+    "drama": "36",
+    "family": "37",
+    "foreign": "38",
+    "horror": "39",
+    "sci-fi/fantasy": "40",
+    "thriller": "41",
+    "shorts": "42",
+    "shows": "43",
+    "trailers": "44"
+}
 
 class YouTubeUploadError(Exception):
     """Exception raised for YouTube upload errors"""
@@ -200,7 +235,15 @@ class YouTubeClient:
             # Split tags by commas and strip whitespace
             metadata["tags"] = [tag.strip() for tag in content.split(",")]
         elif section == "category":
-            metadata["category"] = content
+            # Check if the category is a name that needs to be converted to an ID
+            content_lower = content.lower()
+            if content_lower in CATEGORY_MAPPING:
+                metadata["category"] = CATEGORY_MAPPING[content_lower]
+                logger.info(f"Converted category name '{content}' to ID: {metadata['category']}")
+            else:
+                # Assume it's already a valid ID or will be handled by error checking later
+                metadata["category"] = content
+                logger.warning(f"Unknown category name: '{content}'. Using as-is. Valid categories are: {', '.join(CATEGORY_MAPPING.keys())}")
         elif section == "privacy":
             if content.lower() in ["public", "private", "unlisted"]:
                 metadata["privacy"] = content.lower()
@@ -239,13 +282,27 @@ class YouTubeClient:
         if is_shorts and "#Shorts" not in tags:
             tags.append("#Shorts")
         
+        # Verify category ID validity
+        category = metadata.get("category", DEFAULT_CATEGORY)
+        valid_category_ids = list(CATEGORY_MAPPING.values())
+        if category not in valid_category_ids:
+            logger.warning(f"Category ID '{category}' may not be valid. Valid IDs are: {', '.join(valid_category_ids)}")
+            if is_shorts:
+                # For shorts, use Entertainment category (24) as fallback
+                category = "24"  # Entertainment
+                logger.info(f"Using Entertainment (24) category for Shorts video")
+            else:
+                # Use Education (27) as fallback
+                category = "27"  # Education
+                logger.info(f"Using Education (27) category as fallback")
+        
         # Create video insert request
         body = {
             "snippet": {
                 "title": title,
                 "description": description,
                 "tags": tags,
-                "categoryId": metadata.get("category", DEFAULT_CATEGORY)
+                "categoryId": category
             },
             "status": {
                 "privacyStatus": metadata.get("privacy", DEFAULT_PRIVACY),
