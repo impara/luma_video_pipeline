@@ -38,8 +38,28 @@ class Config:
         # Optional development flags
         self.dev_mode = os.getenv("VIDEO_PIPELINE_DEV_MODE", "").lower() in ("true", "1", "yes")
         
+        # Set up output directories
+        self.base_output_dir = Path("output")
+        self.video_output_dir = self.base_output_dir / "videos"
+        self.image_output_dir = self.base_output_dir / "images"
+        self.audio_output_dir = self.base_output_dir / "audio"
+        self.captions_output_dir = self.base_output_dir / "captions"
+        self.temp_output_dir = self.base_output_dir / "temp"
+        
+        # Ensure all output directories exist
+        self._ensure_output_dirs()
+        
         # Validate required configuration
         self._validate_config()
+    
+    def _ensure_output_dirs(self):
+        """Ensure all output directories exist"""
+        self.base_output_dir.mkdir(exist_ok=True)
+        self.video_output_dir.mkdir(exist_ok=True)
+        self.image_output_dir.mkdir(exist_ok=True)
+        self.audio_output_dir.mkdir(exist_ok=True)
+        self.captions_output_dir.mkdir(exist_ok=True)
+        self.temp_output_dir.mkdir(exist_ok=True)
     
     def _validate_config(self):
         """Validate that all required configuration is present"""

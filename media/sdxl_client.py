@@ -1,26 +1,32 @@
+"""
+SDXL client for image generation via Replicate.
+"""
+
 import os
 import uuid
 import requests
 import hashlib
 import json
+import replicate
+import tempfile
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union, Tuple
-import replicate
-from media_client import GenerativeMediaClient
-from cache_handler import CacheHandler
-from error_handling import ImageGenerationError, retry_media_generation
-from utils import download_image, ensure_dir_exists
+from PIL import Image
+from media.client_base import MediaClient
+from core.cache_handler import CacheHandler
+from core.error_handling import ImageGenerationError, retry_media_generation
+from core.utils import ensure_directory_exists, download_file_to_path
+from core.config import Config
 import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class SDXLClient(GenerativeMediaClient):
+class SDXLClient(MediaClient):
     """Client for generating images using Replicate's SDXL model."""
     
     MODEL_ID = "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b"
-    DOWNLOAD_DIR = Path("generated_images")
     
     def __init__(self, api_token: str = None, dev_mode: bool = False):
         """Initialize the SDXL client.
@@ -34,11 +40,15 @@ class SDXLClient(GenerativeMediaClient):
         if not self.api_token:
             raise ValueError("REPLICATE_API_TOKEN environment variable or api_token parameter is required")
             
+        # Load config for output directories
+        self.config = Config()
+        self.DOWNLOAD_DIR = self.config.image_output_dir
+            
         # Set the API token for the replicate client
         os.environ["REPLICATE_API_TOKEN"] = self.api_token
         
         # Ensure download directory exists
-        ensure_dir_exists(self.DOWNLOAD_DIR)
+        ensure_directory_exists(self.DOWNLOAD_DIR)
         
         # Initialize cache handler
         self.cache_handler = CacheHandler(
@@ -730,6 +740,49 @@ class SDXLClient(GenerativeMediaClient):
         except Exception as e:
             logger.error(f"Image generation failed: {str(e)}")
             raise ImageGenerationError(f"Image generation failed: {str(e)}")
+
+    def download_media(self, url: str, output_path: str) -> str:
+        """
+        Download media from URL to local storage.
+        
+        Args:
+            url: URL of the media to download
+            output_path: Path where to save the downloaded media
+            
+        Returns:
+            Path to the downloaded media file
+        """
+        try:
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+            
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    
+            logger.info(f"Downloaded media to {output_path}")
+            return output_path
+        except Exception as e:
+            logger.error(f"Failed to download media: {e}")
+            raise ImageGenerationError(f"Failed to download media: {e}")
+    
+    def get_media_dimensions(self, path: str) -> Dict[str, int]:
+        """
+        Get the dimensions of the media.
+        
+        Args:
+            path: Path to the media file
+            
+        Returns:
+            Dictionary containing width and height of the media
+        """
+        try:
+            with Image.open(path) as img:
+                width, height = img.size
+                return {"width": width, "height": height}
+        except Exception as e:
+            logger.error(f"Failed to get image dimensions: {e}")
+            raise ImageGenerationError(f"Failed to get image dimensions: {e}")
 
 
 # Example usage:

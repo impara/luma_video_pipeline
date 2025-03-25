@@ -1,27 +1,26 @@
 """
-Scene Builder module that orchestrates:
-1. Media generation using GenerativeMediaClient
-2. TTS voiceover creation
-3. Caption generation
-4. Scene assembly
+Scene Builder for coordinating the generation of individual scenes.
 """
 
+import os
+import time
+import json
 import logging
-from pathlib import Path
-from typing import Dict, Optional, Union, Tuple, List, Any
-from moviepy.editor import (
-    AudioFileClip, VideoFileClip, ImageClip, CompositeVideoClip,
-    vfx, transfx, VideoClip, concatenate_audioclips
-)
+import tempfile
 import numpy as np
-from PIL import Image
-from media_client import GenerativeMediaClient
-from tts import TextToSpeech
-from captions import create_caption_clip, overlay_caption_on_video, add_karaoke_captions_to_video
 import uuid as uuid_lib
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Tuple, Union
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from moviepy.editor import VideoFileClip, ImageClip, AudioFileClip, CompositeVideoClip, VideoClip, concatenate_audioclips
+from PIL import Image
 
-# Import our new error handling
-from error_handling import SceneBuilderError, MediaGenerationError, TTSError, retry_scene_building
+from core.error_handling import SceneBuilderError, retry_scene_building, MediaGenerationError
+from core.utils import ensure_directory_exists
+from core.config import Config
+from audio.tts import TextToSpeech
+from video.captions import create_caption_clip, add_karaoke_captions_to_video
+from media.client_base import MediaClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -30,7 +29,7 @@ logger = logging.getLogger(__name__)
 class SceneBuilder:
     def __init__(
         self,
-        media_client: GenerativeMediaClient,
+        media_client: MediaClient,
         tts_client: Optional[TextToSpeech] = None,
         media_type: str = "video",  # Can be "video" or "image"
         use_smart_voice: bool = True  # Enable smart voice by default
@@ -39,7 +38,7 @@ class SceneBuilder:
         Initialize the scene builder with media client and optional TTS client
         
         Args:
-            media_client: GenerativeMediaClient instance for generating media (video/images)
+            media_client: MediaClient instance for generating media (video/images)
             tts_client: Optional TextToSpeech instance. If not provided, creates a new one.
             media_type: Type of media to generate ("video" or "image")
             use_smart_voice: Whether to use smart voice optimization
@@ -49,9 +48,10 @@ class SceneBuilder:
         self.media_type = media_type
         self.use_smart_voice = use_smart_voice
         
-        # Ensure output directories exist
-        self.output_dir = Path("generated_scenes")
-        self.output_dir.mkdir(exist_ok=True)
+        # Load config for output directories
+        self.config = Config()
+        self.output_dir = self.config.temp_output_dir
+        ensure_directory_exists(self.output_dir)
         
         logger.info(f"SceneBuilder initialized with media_type={media_type}, use_smart_voice={use_smart_voice}")
     
@@ -155,7 +155,7 @@ class SceneBuilder:
                 
                 # Verify audio file
                 if not Path(audio_path).exists() or Path(audio_path).stat().st_size == 0:
-                    raise TTSError(f"Generated audio file for part {i} is invalid or empty")
+                    raise MediaGenerationError(f"Generated audio file for part {i} is invalid or empty")
                 
                 # Get audio duration
                 with AudioFileClip(audio_path) as audio:

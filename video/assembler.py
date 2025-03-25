@@ -6,20 +6,29 @@ Responsible for:
 - Handling final video export with all elements combined
 """
 
+import os
+import json
 import logging
+import tempfile
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 from moviepy.editor import (
     AudioFileClip,
     CompositeVideoClip,
     VideoFileClip,
+    ImageClip,
     concatenate_videoclips,
     concatenate_audioclips,
     ColorClip,
+    clips_array,
     transfx
 )
 from moviepy.video.fx import all as vfx
+
+from core.error_handling import MediaGenerationError
+from core.config import Config
+from core.utils import ensure_directory_exists
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -27,9 +36,10 @@ logger = logging.getLogger(__name__)
 class VideoAssembler:
     def __init__(self):
         """Initialize the video assembler"""
-        # Create output directory
-        self.output_dir = Path("final_videos")
-        self.output_dir.mkdir(exist_ok=True)
+        # Load config for output directories
+        self.config = Config()
+        self.output_dir = self.config.video_output_dir
+        ensure_directory_exists(self.output_dir)
         
     def _prepare_output_path(self, output_path: str) -> str:
         """
@@ -41,11 +51,22 @@ class VideoAssembler:
         Returns:
             str: Normalized output path with proper extension
         """
+        # Check if the output path already starts with output/videos
+        if output_path.startswith(str(self.output_dir)):
+            # If it's already a properly formatted path, use it as is
+            output_path_obj = Path(output_path)
+        else:
+            # Otherwise, place it in the output directory
+            output_path_obj = self.output_dir / Path(output_path).name
+            
         # Ensure output path has .mp4 extension
-        output_path = str(self.output_dir / Path(output_path))
-        if not output_path.endswith('.mp4'):
-            output_path += '.mp4'
-        return output_path
+        if not str(output_path_obj).endswith('.mp4'):
+            output_path_obj = output_path_obj.with_suffix('.mp4')
+            
+        # Create parent directories if needed
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+        
+        return str(output_path_obj)
         
     def _write_video_file(self, clip, output_path: str, is_high_quality: bool = True) -> None:
         """

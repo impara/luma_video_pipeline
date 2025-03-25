@@ -10,7 +10,7 @@ from pathlib import Path
 import logging
 from typing import Optional, Union
 
-from error_handling import retry_download, log_error
+from core.error_handling import retry_download, log_error
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -56,6 +56,9 @@ def download_file(url: str, output_dir: Path, file_id: Optional[str] = None, ext
     except Exception as e:
         logger.error(f"Download failed: {e}")
         raise
+
+# Add alias for consistency with new naming convention
+download_file_to_path = download_file
 
 def download_image(url: str, output_dir: Path, file_id: Optional[str] = None) -> Path:
     """Specialized function for downloading images.
@@ -116,4 +119,7 @@ def ensure_dir_exists(path: Union[str, Path]) -> Path:
     """
     path_obj = Path(path)
     path_obj.mkdir(parents=True, exist_ok=True)
-    return path_obj 
+    return path_obj
+
+# Add alias for consistency with new naming convention
+ensure_directory_exists = ensure_dir_exists 

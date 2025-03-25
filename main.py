@@ -4,19 +4,64 @@ A multi-scene media generation pipeline supporting both video and image generati
 """
 
 import argparse
+import os
+import shutil
 from pathlib import Path
-from config import Config, ConfigError
-from replicate_client import ReplicateRayClient
-from sdxl_client import SDXLClient
-from gemini_client import GeminiClient
-from tts import TextToSpeech
-from captions import create_caption_clip, add_captions_to_video
-from assembler import VideoAssembler
-from scene_builder import SceneBuilder
-from parse_script import parse_two_part_script
+from core.config import Config, ConfigError
+from media.replicate_client import ReplicateRayClient
+from media.sdxl_client import SDXLClient
+from media.gemini_client import GeminiClient
+from audio.tts import TextToSpeech
+from video.captions import create_caption_clip, add_captions_to_video
+from video.assembler import VideoAssembler
+from video.scene_builder import SceneBuilder
+from video.parse_script import parse_two_part_script
 from moviepy.editor import ColorClip
-from logging_config import configure_logging
+from core.logging_config import configure_logging
 import logging
+
+def clear_output_directories(config, preserve_videos=True):
+    """
+    Clear all output directories except for videos directory if preserve_videos is True.
+    
+    Args:
+        config: Config instance containing output directory paths
+        preserve_videos: Whether to preserve the videos directory
+    """
+    directories_to_clear = [
+        config.image_output_dir,
+        config.audio_output_dir,
+        config.captions_output_dir,
+        config.temp_output_dir
+    ]
+    
+    # Add replicate_segments directory if it exists
+    replicate_segments_dir = config.base_output_dir / "replicate_segments"
+    if replicate_segments_dir.exists():
+        directories_to_clear.append(replicate_segments_dir)
+    
+    # Add videos directory if not preserving
+    if not preserve_videos:
+        directories_to_clear.append(config.video_output_dir)
+    
+    print("\n=== Clearing Output Directories ===")
+    for directory in directories_to_clear:
+        if directory.exists():
+            print(f"Clearing: {directory}")
+            try:
+                # Remove all files in directory
+                for item in directory.glob("*"):
+                    if item.is_file():
+                        item.unlink()
+                    elif item.is_dir():
+                        shutil.rmtree(item)
+                print(f"✓ Cleared {directory}")
+            except Exception as e:
+                print(f"! Error clearing {directory}: {e}")
+    
+    if preserve_videos:
+        print(f"✓ Preserved videos directory: {config.video_output_dir}")
+    print("=== Cleanup Complete ===\n")
 
 def create_parser() -> argparse.ArgumentParser:
     """Create the command line argument parser"""
@@ -66,6 +111,9 @@ Examples:
   
   # Use UnrealSpeech for TTS instead of ElevenLabs (always uses 'Daniel' voice):
   python main.py --media-type video --script-file script.txt --tts-provider unrealspeech
+  
+  # Clear temporary files before generating new video:
+  python main.py --media-type image --script-file script.txt --clear
 """
     )
     
@@ -136,6 +184,12 @@ Examples:
         action="store_false",
         dest="youtube_optimized",
         help="Disable YouTube optimization for faster generation and testing"
+    )
+    
+    parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="Clear all output directories (except videos) before processing"
     )
     
     # Style options
@@ -420,12 +474,12 @@ def process_script(args: argparse.Namespace, scene_builder: SceneBuilder, assemb
         print(f"- Total scenes: {len(scenes)}")
         print(f"- Output path: {final_path}")
         
-        # Note: To upload this video to YouTube, use the youtube_uploader.py script
-        print("\nTo upload this video to YouTube, use the youtube_uploader.py script:")
+        # Note: To upload this video to YouTube, use the integrations/youtube/uploader.py script
+        print("\nTo upload this video to YouTube, use the integrations/youtube/uploader.py script:")
         if args.video_format == "short":
-            print(f"python youtube_uploader.py --video-path {final_path} --metadata youtube_metadata.txt --shorts")
+            print(f"python integrations/youtube/uploader.py --video-path {final_path} --metadata youtube_metadata.txt --shorts")
         else:
-            print(f"python youtube_uploader.py --video-path {final_path} --metadata youtube_metadata.txt")
+            print(f"python integrations/youtube/uploader.py --video-path {final_path} --metadata youtube_metadata.txt")
         
     except Exception as e:
         print(f"\nError: {str(e)}")
@@ -451,6 +505,10 @@ def main():
         
         # Load and validate configuration
         config = Config()
+        
+        # Clear output directories if requested
+        if args.clear:
+            clear_output_directories(config, preserve_videos=True)
         
         # Initialize media client based on type
         if args.media_type == "video":

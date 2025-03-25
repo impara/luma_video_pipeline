@@ -25,16 +25,51 @@ Combined with ElevenLabs for text-to-speech voiceovers and automatic caption ove
 - Modular architecture with centralized caching and error handling
 - Consistent "Daniel" voice with smart parameter optimization
 - Improved caption synchronization for numeric references
+- Clear output directories option for fresh runs
 
 ## Architecture
 
 The pipeline is built with a modular architecture:
 
-- **Media Clients**: Interchangeable implementations (SDXL, Ray, Gemini) that share a common interface
-- **Cache Handler**: Centralized caching mechanism to avoid redundant API calls
-- **Error Handling**: Unified error handling with retry mechanisms
-- **Utilities**: Common functionality for file downloads and path handling
-- **Scene Builder**: Orchestrates media generation, TTS, and assembly
+- **Core**: Contains configuration, logging, error handling, and utilities
+
+  - `config.py`: Centralized configuration management
+  - `logging_config.py`: Unified logging setup
+  - `error_handling.py`: Error types and retry mechanisms
+  - `cache_handler.py`: Caching system
+  - `utils.py`: Common utility functions
+
+- **Media**: Media generation clients with a common interface
+
+  - `client_base.py`: Abstract base class defining the client interface
+  - `replicate_client.py`: Client for Replicate's Ray model (video)
+  - `sdxl_client.py`: Client for SDXL image generation
+  - `gemini_client.py`: Client for Google Gemini API
+
+- **Audio**: Audio generation and processing
+
+  - `tts.py`: Text-to-speech synthesis
+  - `unrealspeech_provider.py`: UnrealSpeech implementation
+  - `voice_optimizer.py`: Voice parameter optimization
+
+- **Video**: Video generation, processing, and assembly
+
+  - `scene_builder.py`: Orchestrates scene generation
+  - `assembler.py`: Combines scenes into final video
+  - `captions.py`: Caption generation and overlay
+  - `parse_script.py`: Script parsing utilities
+
+- **Integrations**: External service integrations
+
+  - YouTube: For video upload and management
+
+- **Output**: Generated files (not in version control)
+  - `videos/`: Generated video files
+  - `images/`: Generated image files
+  - `audio/`: TTS audio files
+  - `captions/`: Caption files
+  - `temp/`: Temporary processing files
+  - `replicate_segments/`: Cached video segments
 
 ## Prerequisites
 
@@ -49,16 +84,16 @@ The pipeline is built with a modular architecture:
 
 ```bash
 git clone <repository-url>
-cd video_pipeline
+cd luma_video_pipeline
 ```
 
 2. Create and activate a virtual environment:
 
 ```bash
-python -m venv env
-source env/bin/activate  # Linux/Mac
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
 # or
-env\Scripts\activate  # Windows
+venv\Scripts\activate  # Windows
 ```
 
 3. Install dependencies:
@@ -115,6 +150,20 @@ python main.py \
     --output-file output.mp4 \
     --animation-style ken_burns
 ```
+
+### Clean Output Directories
+
+To start with fresh output directories (preserving videos):
+
+```bash
+python main.py \
+    --media-type image \
+    --script-file script.txt \
+    --output-file output.mp4 \
+    --clear
+```
+
+The `--clear` flag cleans all output directories (images, audio, captions, temp, replicate_segments) while preserving the videos directory.
 
 ### Animation Styles
 
@@ -313,18 +362,26 @@ options:
                         Output path for the final video (default: final_video.mp4)
   --media-type {video,image}
                         Type of media to generate (default: video)
+  --image-model {sdxl,gemini}
+                        Model to use for image generation (default: sdxl)
   --animation-style {ken_burns,zoom,pan}
                         Animation style for image mode (default: ken_burns)
   --video-format {landscape,short,square}
                         Video format/aspect ratio (default: landscape)
                         'landscape' is 16:9, 'short' is 9:16 for social media, 'square' is 1:1
+  --use-timing-adjustment {true,false}
+                        Whether to apply timing adjustments for karaoke captions (default: true)
+  --youtube-optimized   Optimize video resolution and bitrate for YouTube standards (default: enabled)
+  --no-youtube-optimized
+                        Disable YouTube optimization for faster generation and testing
+  --clear               Clear all output directories (except videos) before processing
 
 Style options:
   --style {default,tiktok_neon,tiktok_bold,tiktok_minimal,tiktok_boxed}
                         Preset style for captions (default: default)
   --font FONT          Font for captions (default: Arial-Bold)
   --font-size FONT_SIZE
-                        Font size for captions (default: 60)
+                        Font size for captions (default: 24)
   --color COLOR         Text color for captions (default: white)
   --highlight-color COLOR
                         Color for highlighted words in karaoke captions (default: #ff5c5c)
@@ -340,6 +397,12 @@ Style options:
                         Number of caption lines to show at once (default: 2)
   --bottom-padding PADDING
                         Padding from bottom of screen in pixels (default: 80)
+
+Text-to-Speech options:
+  --tts-provider {elevenlabs,unrealspeech}
+                        TTS provider to use (default: elevenlabs). Always uses 'Daniel' voice.
+  --disable-smart-voice
+                        Disable smart voice parameter optimization
 ```
 
 ## Development Mode
@@ -354,7 +417,7 @@ The pipeline supports a development mode (`VIDEO_PIPELINE_DEV_MODE=true` in .env
 
 ### Media Client Interface
 
-The `GenerativeMediaClient` interface allows easy switching between different media generation backends:
+The `MediaClient` interface allows easy switching between different media generation backends:
 
 - **ReplicateRayClient**: For video generation
 - **SDXLClient**: For image generation
@@ -403,12 +466,19 @@ Common functionality is centralized in the `utils` module:
 - Adjust animation parameters for smooth motion
 - Generate multiple variations when needed
 
+### For Image Generation (Gemini)
+
+- Clear descriptive prompts work best
+- Use the free tier API key to generate images
+- Set a consistent aspect ratio for best results
+- Consider using the Ken Burns animation style
+
 ### For Karaoke Captions
 
 - Keep narration text natural and well-paced
 - Use high-contrast colors for better readability
 - Adjust font size based on video dimensions
-- Test with different highlight colors for best effect
+- Test different highlight colors for best effect
 - Consider using stroke outlines for better visibility
 - Use the paging system for longer narrations
 - Adjust visible lines (2-3 recommended) for optimal viewing
@@ -420,12 +490,16 @@ Common functionality is centralized in the `utils` module:
 - Use high-contrast caption colors
 - Test different animation styles
 - Cache generated content for faster iteration
+- Use the `--clear` flag for fresh runs to avoid using old cached content
 
 ## Technical Details
 
-- Videos/Images are cached in `downloads/replicate_segments/` and `generated_images/`
-- Audio files are stored in `generated_audio/`
-- Final videos saved in `final_videos/`
+- Videos are cached in `output/replicate_segments/`
+- Images are stored in `output/images/`
+- Audio files are stored in `output/audio/`
+- Temporary files are stored in `output/temp/`
+- Final videos saved in `output/videos/`
+- Caption data stored in `output/captions/`
 - Supports aspect ratios: 16:9, 9:16, 1:1
 - Default video FPS: 24
 - Audio format: WAV (44.1kHz)
@@ -445,8 +519,8 @@ Common functionality is centralized in the `utils` module:
 - Landscape (16:9): 1280x720 (720p)
 - Short (9:16): 720x1280
 - Square (1:1): 720x720
-- Video bitrate: 8Mbps
-- Audio bitrate: 160kbps
+- Video bitrate: 4Mbps
+- Audio bitrate: 128kbps
 
 Both modes produce YouTube-compatible videos. The optimized mode follows YouTube's recommended specifications for best quality (1080p), while the fast generation mode ensures at least 720p quality on YouTube.
 

@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import time
 
+from core.config import Config
 from youtube_client import YouTubeClient
 from sdxl_client import SDXLClient
-from config import Config
 
 # Configure logging
 logging.basicConfig(
@@ -31,19 +31,19 @@ def create_parser() -> argparse.ArgumentParser:
         epilog="""
 Examples:
   # Upload a standard landscape video:
-  python youtube_uploader.py --video-path final_videos/my_video.mp4 --metadata youtube_metadata.txt
+  python integrations/youtube/uploader.py --video-path output/videos/my_video.mp4 --metadata youtube_metadata.txt
   
   # Upload a YouTube Shorts video:
-  python youtube_uploader.py --video-path final_videos/my_shorts.mp4 --metadata youtube_metadata.txt --shorts
+  python integrations/youtube/uploader.py --video-path output/videos/my_shorts.mp4 --metadata youtube_metadata.txt --shorts
   
   # Use custom credentials file:
-  python youtube_uploader.py --video-path final_videos/my_video.mp4 --metadata youtube_metadata.txt --credentials my_credentials.json
+  python integrations/youtube/uploader.py --video-path output/videos/my_video.mp4 --metadata youtube_metadata.txt --credentials my_credentials.json
   
   # Generate and use a thumbnail from the metadata description:
-  python youtube_uploader.py --video-path final_videos/my_video.mp4 --metadata youtube_metadata.txt --generate-thumbnail
+  python integrations/youtube/uploader.py --video-path output/videos/my_video.mp4 --metadata youtube_metadata.txt --generate-thumbnail
   
   # Use an existing thumbnail image:
-  python youtube_uploader.py --video-path final_videos/my_video.mp4 --metadata youtube_metadata.txt --thumbnail my_thumbnail.jpg
+  python integrations/youtube/uploader.py --video-path output/videos/my_video.mp4 --metadata youtube_metadata.txt --thumbnail my_thumbnail.jpg
 """
     )
     

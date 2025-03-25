@@ -1,17 +1,19 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="video_pipeline",
+    name="luma_video_pipeline",
     version="0.1.0",
     packages=find_packages(),
+    include_package_data=True,
     install_requires=[
-        "httpx==0.26.0",
-        "moviepy==1.0.3",
-        "python-dotenv==1.0.0",
-        "pydub==0.25.1",
-        "elevenlabs==1.54.0",
-        "tenacity==8.2.3",
-        "pytest==7.4.4",
-        "pytest-asyncio==0.23.3"
-    ],
+        "replicate",
+        "elevenlabs",
+        "moviepy",
+        "pydub",
+        "python-dotenv",
+        "pillow",
+        "google-generativeai",
+        "tenacity",
+        "httpx",
+    ]
 ) 

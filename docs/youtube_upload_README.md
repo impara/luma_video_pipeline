@@ -105,10 +105,10 @@ Common category IDs:
 
 ```bash
 # Upload a standard landscape video
-python youtube_uploader.py --video-path final_videos/kufr_concept.mp4 --metadata youtube_metadata.txt --generate-thumbnail
+python integrations/youtube/uploader.py --video-path output/videos/kufr_concept.mp4 --metadata youtube_metadata.txt --generate-thumbnail
 
 # Upload a YouTube Shorts video
-python youtube_uploader.py --video-path final_videos/kufr_concept.mp4 --metadata youtube_metadata.txt --generate-thumbnail --shorts
+python integrations/youtube/uploader.py --video-path output/videos/kufr_concept.mp4 --metadata youtube_metadata.txt --generate-thumbnail --shorts
 ```
 
 ## Thumbnail Options
@@ -118,19 +118,19 @@ You have two options for thumbnails:
 1. **Generate a thumbnail** using the description in your metadata file:
 
 ```bash
-python youtube_uploader.py --video-path final_videos/my_video.mp4 --metadata youtube_metadata.txt --generate-thumbnail
+python integrations/youtube/uploader.py --video-path output/videos/my_video.mp4 --metadata youtube_metadata.txt --generate-thumbnail
 ```
 
 2. **Use an existing image** as the thumbnail:
 
 ```bash
-python youtube_uploader.py --video-path final_videos/my_video.mp4 --metadata youtube_metadata.txt --thumbnail my_thumbnail.jpg
+python integrations/youtube/uploader.py --video-path output/videos/my_video.mp4 --metadata youtube_metadata.txt --thumbnail my_thumbnail.jpg
 ```
 
 You can customize the generated thumbnail dimensions:
 
 ```bash
-python youtube_uploader.py --video-path final_videos/my_video.mp4 --metadata youtube_metadata.txt --generate-thumbnail --thumbnail-width 1280 --thumbnail-height 720
+python integrations/youtube/uploader.py --video-path output/videos/my_video.mp4 --metadata youtube_metadata.txt --generate-thumbnail --thumbnail-width 1280 --thumbnail-height 720
 ```
 
 ## Benefits of the Standalone Approach
@@ -199,8 +199,8 @@ python main.py \
 5. Upload when satisfied, with a generated thumbnail:
 
 ```bash
-python youtube_uploader.py \
-    --video-path final_videos/your_video.mp4 \
+python integrations/youtube/uploader.py \
+    --video-path output/videos/your_video.mp4 \
     --metadata youtube_metadata.txt \
     --shorts \
     --generate-thumbnail

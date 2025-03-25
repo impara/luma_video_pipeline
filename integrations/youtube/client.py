@@ -7,8 +7,9 @@ import os
 import time
 import json
 import logging
+import tempfile
 from pathlib import Path
-from typing import Dict, Optional, List, Any, Tuple
+from typing import Dict, Optional, List, Any, Tuple, Union
 import http.client
 import httplib2
 import random
@@ -20,6 +21,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from PIL import Image
+
+from core.error_handling import retry_api_call
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
