@@ -271,6 +271,7 @@ The pipeline includes several ready-to-use caption style presets:
 
 - `tiktok_neon`: Cyan highlighting with bold text (best for most videos)
 - `tiktok_bold`: Bold text with highlighted words in yellow boxes (authentic TikTok style)
+- `tiktok_yellow`: Bold text with highlighted words in vibrant yellow flag style (matches VON style in image)
 - `tiktok_minimal`: Clean minimal style with pink highlighting (subtle)
 - `tiktok_boxed`: Bold text with highlighted words in red boxes (authentic TikTok style)
 
@@ -377,7 +378,7 @@ options:
   --clear               Clear all output directories (except videos) before processing
 
 Style options:
-  --style {default,tiktok_neon,tiktok_bold,tiktok_minimal,tiktok_boxed}
+  --style {default,tiktok_neon,tiktok_bold,tiktok_minimal,tiktok_boxed,tiktok_yellow}
                         Preset style for captions (default: default)
   --font FONT          Font for captions (default: Arial-Bold)
   --font-size FONT_SIZE

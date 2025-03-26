@@ -97,6 +97,7 @@ Examples:
   # Available karaoke caption presets:
   # - tiktok_neon: Cyan highlighting with bold text (best for most videos)
   # - tiktok_bold: Bold text with highlighted words in yellow boxes (authentic TikTok style)
+  # - tiktok_yellow: Bold text with highlighted words in vibrant yellow flag style
   # - tiktok_minimal: Clean minimal style with pink highlighting (subtle)
   # - tiktok_boxed: Bold text with highlighted words in red boxes (authentic TikTok style)
   
@@ -197,7 +198,7 @@ Examples:
     style_group.add_argument(
         "--style",
         type=str,
-        choices=["default", "tiktok_neon", "tiktok_bold", "tiktok_minimal", "tiktok_boxed"],
+        choices=["default", "tiktok_neon", "tiktok_bold", "tiktok_minimal", "tiktok_boxed", "tiktok_yellow"],
         default="default",
         help="Preset style for captions (overrides individual style settings)"
     )
@@ -346,7 +347,28 @@ def get_style_preset(preset_name: str) -> dict:
             "highlight_color": "white",  # Text color for highlighted words
             "highlight_bg_color": (255, 191, 0),  # Golden yellow color for highlighted words
             "stroke_color": "black",  # Used for shadow effect
-            "stroke_width": 0,  # Not used with our new shadow implementation
+            "stroke_width": 3,  # Add visible border around text
+            "use_background": False,  # No background for non-highlighted words
+            "bg_color": (0, 0, 0),  # Black (RGB tuple)
+            "highlight_use_box": True,  # Use box highlighting style
+            "visible_lines": 3,  # Show more lines for complex content
+            "bottom_padding": 120,  # Increased bottom padding for better positioning
+            "max_line_width_ratio": 0.85,  # Keep good margins
+            "preserve_spacing": True,  # Ensure word spacing is preserved
+            "consistent_positioning": True,  # Ensure caption positioning is consistent
+            "base_visible_lines": 3,  # Fixed number of lines for baseline positioning
+            "word_spacing": 15,  # Extra space between words for clarity
+            "timing_buffer": 0.08,  # 80ms buffer between highlighted words
+            "crossfade_duration": 0.15  # 150ms crossfade for smooth transitions
+        },
+        "tiktok_yellow": {
+            "font": "Arial-Black",  # Bolder font for TikTok style
+            "font_size": 80,  # Larger font size for authentic TikTok look
+            "color": "white",  # Regular text color
+            "highlight_color": "white",  # Text color for highlighted words
+            "highlight_bg_color": (255, 215, 0),  # Vibrant yellow color for highlighted words - matches image
+            "stroke_color": "black",  # Used for shadow effect
+            "stroke_width": 3,  # Add visible border around text
             "use_background": False,  # No background for non-highlighted words
             "bg_color": (0, 0, 0),  # Black (RGB tuple)
             "highlight_use_box": True,  # Use box highlighting style
@@ -366,7 +388,7 @@ def get_style_preset(preset_name: str) -> dict:
             "color": "white",
             "highlight_color": "#ff5c5c",  # Pink/red
             "stroke_color": "black",
-            "stroke_width": 2,
+            "stroke_width": 3,  # Add visible border around text
             "use_background": False,
             "bg_color": (0, 0, 0, 128),  # Semi-transparent black
             "visible_lines": 2,
@@ -380,7 +402,7 @@ def get_style_preset(preset_name: str) -> dict:
             "highlight_color": "white",  # Text color for highlighted words
             "highlight_bg_color": (255, 48, 64),  # More precise TikTok red
             "stroke_color": "black",  # Used for shadow effect
-            "stroke_width": 0,  # Not used with our new shadow implementation
+            "stroke_width": 3,  # Add visible border around text
             "use_background": False,  # No background for non-highlighted words
             "bg_color": (0, 0, 0),  # Black (RGB tuple)
             "highlight_use_box": True,  # Use box highlighting style

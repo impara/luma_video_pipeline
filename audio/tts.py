@@ -393,40 +393,42 @@ class TextToSpeech:
             raise TTSError(f"Failed to generate speech: {str(e)}")
     
     def _generate_speech_elevenlabs(self, text: str, voice_name: str, settings: Dict, model: str, output_path: Path) -> Dict:
-        """Generate speech using ElevenLabs provider."""
-        # Find voice by name
-        voice = next((v for v in self.available_voices if v.name == voice_name), None)
-        voice_id = voice.voice_id if voice else None
-            
-        if not voice_id:
-            raise TTSError(f"Voice '{voice_name}' not found")
-        
-        # Generate audio with optimized settings and word timings
-        word_timings = []
-        duration = 0
-        
+        """Generate speech using ElevenLabs API."""
         try:
-            # Check if we're in test mode
-            is_test_key = "test" in self.api_key.lower()
-            if is_test_key:
-                logger.info("Test mode: Generating fake audio file instead of calling ElevenLabs API")
+            # Find the voice
+            voice = None
+            for v in self.available_voices:
+                if v.name.lower() == voice_name.lower():
+                    voice = v
+                    break
+            
+            if not voice:
+                raise TTSError(f"Voice '{voice_name}' not found in ElevenLabs voices")
+            
+            voice_id = voice.voice_id
+            
+            # Handle test mode
+            if "test" in self.api_key.lower() or voice_id.startswith("test_"):
+                logger.warning("Using test mode for ElevenLabs API")
                 
-                # Create a silent audio file for testing
-                # AudioSegment already imported at the top of the file
+                # Create a test audio file (sine wave)
+                test_audio = Sine(440).to_audio_segment(duration=2000)  # 2 seconds
+                # Add another second with a different tone
+                test_audio = test_audio + Sine(880).to_audio_segment(duration=3000)  # 3 more seconds
                 
-                # Create a simple audio segment (1 second of silence per 10 characters of text)
-                duration = max(3, len(text) / 10)  # Minimum 3 seconds
-                silence = AudioSegment.silent(duration=int(duration * 1000))  # Duration in milliseconds
+                # Export to the specified path
+                test_audio.export(output_path, format="mp3")
                 
-                # Add a beep sound at the beginning so it's not completely silent
-                beep = Sine(440).to_audio_segment(duration=500)  # 500ms beep at 440Hz
-                audio = beep + silence
+                # Create approximate word timings based on text length
+                approximate_timings = self._generate_approximate_word_timings(text, len(test_audio) / 1000.0)
+                # For approximate timings, expand numeric references to improve highlighting
+                word_timings = self._expand_numeric_references(approximate_timings)
                 
-                # Export as MP3
-                audio.export(output_path, format="mp3")
-                
-                # Generate approximate word timings
-                word_timings = self._generate_approximate_word_timings(text, duration)
+                return {
+                    "path": str(output_path),
+                    "word_timings": word_timings,
+                    "duration": len(test_audio) / 1000.0  # Convert ms to seconds
+                }
             else:
                 logger.info("Generating speech with ElevenLabs API")
                 
@@ -463,20 +465,95 @@ class TextToSpeech:
                 approximate_timings = self._generate_approximate_word_timings(text, duration)
                 # For approximate timings, expand numeric references to improve highlighting
                 word_timings = self._expand_numeric_references(approximate_timings)
-                logger.info(f"Generated approximate word timings for {len(word_timings)} words")
-            
+                
+                # Fix Quranic references ordering issue
+                word_timings = self._fix_reference_order(text, word_timings)
+                
+                return {
+                    "path": str(output_path),
+                    "word_timings": word_timings,
+                    "duration": duration
+                }
+                
         except Exception as e:
-            logger.warning(f"Failed to generate speech: {e}")
-            raise TTSError(f"Failed to generate speech: {e}")
+            raise TTSError(f"Failed to generate speech with ElevenLabs: {str(e)}")
+
+    def _fix_reference_order(self, original_text: str, word_timings: List[Tuple[str, float, float]]) -> List[Tuple[str, float, float]]:
+        """
+        Fix the order of parenthetical Quranic references in word timings.
+        ElevenLabs sometimes places references like "(Al-A'raf 7:28)" at the beginning
+        of the word timings, even though they appear elsewhere in the text.
         
-        # Create result dictionary
-        result = {
-            "path": str(output_path),
-            "word_timings": word_timings,
-            "duration": duration
-        }
+        Args:
+            original_text: The original text sent to the TTS API
+            word_timings: List of (word, start_time, end_time) tuples
+            
+        Returns:
+            Reordered list of word timings
+        """
+        # Quick check if reordering is needed - look for parenthetical references
+        parenthetical_refs = re.findall(r'\([^)]*\d+:\d+[^)]*\)', original_text)
+        if not parenthetical_refs:
+            return word_timings  # No references to fix
         
-        return result
+        # Extract just the words from the timings for easier analysis
+        words = [w[0] for w in word_timings]
+        joined_words = " ".join(words)
+        
+        # Check if we have a reference at the start that shouldn't be there
+        for ref in parenthetical_refs:
+            # If reference appears in the first 3 words but not at the beginning of original text
+            ref_parts = ref.split()
+            if any(word.startswith(ref_parts[0].strip('(')) for word in words[:3]) and not original_text.strip().startswith(ref_parts[0]):
+                logger.warning(f"Detected misplaced reference: {ref}")
+                
+                # Find where this reference should be in the original text
+                try:
+                    # Get the approximate position in the original text
+                    ref_pos_in_text = original_text.find(ref)
+                    if ref_pos_in_text > 0:
+                        # Count words before this position (rough estimate)
+                        words_before_ref = original_text[:ref_pos_in_text].split()
+                        target_position = len(words_before_ref)
+                        
+                        # Find the reference in our word timings
+                        ref_indices = []
+                        ref_start = -1
+                        ref_end = -1
+                        
+                        # Look for parts of the reference in the words
+                        for i, word in enumerate(words):
+                            if i > 0 and ref_start == -1 and word.startswith(ref_parts[0].strip('(')):
+                                ref_start = i
+                            if ref_start != -1 and ref_end == -1:
+                                ref_indices.append(i)
+                                # Check if we've found the last part of the reference
+                                if word.endswith(')') or ')' in word:
+                                    ref_end = i
+                                    break
+                        
+                        # If we found the reference, move it to the correct position
+                        if ref_start != -1 and ref_end != -1:
+                            logger.info(f"Moving reference from positions {ref_start}-{ref_end} to around position {target_position}")
+                            
+                            # Extract the reference timing entries
+                            ref_timings = word_timings[ref_start:ref_end+1]
+                            
+                            # Remove them from their current position
+                            new_timings = word_timings[:ref_start] + word_timings[ref_end+1:]
+                            
+                            # Clamp target position to valid range in the new list
+                            target_position = min(target_position, len(new_timings))
+                            
+                            # Insert at the target position
+                            reordered_timings = new_timings[:target_position] + ref_timings + new_timings[target_position:]
+                            
+                            return reordered_timings
+                except Exception as e:
+                    logger.error(f"Error reordering references: {e}")
+        
+        # Return original timings if we couldn't fix the ordering
+        return word_timings
     
     def _generate_speech_unrealspeech(self, text: str, voice_name: str, settings: Dict, output_path: Path) -> Dict:
         """Generate speech using UnrealSpeech provider."""
@@ -591,119 +668,78 @@ class TextToSpeech:
         expanded_timings = []
         verse_reference_pattern = re.compile(r'^\d+:\d+(-\d+)?$')  # Matches patterns like 99:7 or 99:7-8
         numeric_pattern = re.compile(r'^\d+(\.\d+)?$')  # Matches numbers like 99, 99.7
-        citation_pattern = re.compile(r'\(.*\d+:\d+.*\)')  # Matches citation patterns like (Al-A'raf 7:28)
+        citation_pattern = re.compile(r'\([^)]*\d+:\d+[^)]*\)')  # Matches citation patterns like (Al-A'raf 7:28)
         
-        # First pass: identify citation blocks that should be kept together
-        skip_indices = set()
+        # First pass: identify and fix citation blocks
         i = 0
-        
-        # Process citations first to mark words that should be kept together
-        while i < len(word_timings) - 1:
+        while i < len(word_timings):
             word, start_time, end_time = word_timings[i]
             
-            # Check if this might be the start of a citation (contains opening parenthesis)
-            if '(' in word and i + 1 < len(word_timings):
-                # Look ahead to see if we can form a citation
-                citation_text = word
-                citation_end = i
-                citation_start_time = start_time
-                citation_end_time = end_time
+            # Check if this word is part of a citation
+            if '(' in word:
+                citation_parts = []
+                citation_start = start_time
+                citation_end = end_time
+                j = i
                 
-                # Look ahead max 5 words to find the complete citation
-                for j in range(i+1, min(i+6, len(word_timings))):
-                    next_word, next_start, next_end = word_timings[j]
-                    citation_text += " " + next_word
-                    citation_end = j
-                    citation_end_time = next_end
+                # Collect all parts of the citation
+                while j < len(word_timings):
+                    current_word, curr_start, curr_end = word_timings[j]
+                    citation_parts.append((current_word, curr_start, curr_end))
+                    citation_end = curr_end
                     
-                    # If we see a closing parenthesis, this might complete the citation
-                    if ')' in next_word:
+                    if ')' in current_word:
                         break
+                    j += 1
                 
-                # Check if the constructed text matches a citation pattern
-                if citation_pattern.search(citation_text) or (':' in citation_text and '(' in citation_text and ')' in citation_text):
-                    # This looks like a citation with verse references - keep it together
-                    expanded_timings.append((citation_text, citation_start_time, citation_end_time))
-                    # Mark all these indices to be skipped in the main processing
-                    for j in range(i, citation_end + 1):
-                        skip_indices.add(j)
-                    i = citation_end + 1
-                    continue
+                # If we found a complete citation
+                if j < len(word_timings) and citation_parts:
+                    citation_text = ' '.join(part[0] for part in citation_parts)
+                    if citation_pattern.search(citation_text):
+                        # Add the complete citation as one unit
+                        expanded_timings.append((citation_text, citation_start, citation_end))
+                        i = j + 1
+                        continue
             
-            i += 1
-        
-        # Now process the remaining words
-        for i, (word, start_time, end_time) in enumerate(word_timings):
-            # Skip words that are part of citations
-            if i in skip_indices:
-                continue
-                
-            # Check if this is a verse reference like "99:7-8"
+            # Handle verse references and numbers
             if verse_reference_pattern.match(word):
                 duration = end_time - start_time
+                parts = word.split(':')
                 
-                # Split into meaningful parts
-                if '-' in word:  # Format like "99:7-8"
-                    parts = word.split(':')
+                if '-' in parts[1]:  # Format like "99:7-8"
                     chapter = parts[0]
                     verse_range = parts[1]
-                    
-                    # Allocate 60% to chapter, 40% to verse range
                     chapter_duration = duration * 0.6
-                    verse_duration = duration * 0.4
-                    
-                    # Add chapter number
                     expanded_timings.append((chapter, start_time, start_time + chapter_duration))
-                    
-                    # Add verse range
                     expanded_timings.append((verse_range, start_time + chapter_duration, end_time))
-                    
                 else:  # Format like "99:7"
-                    parts = word.split(':')
                     chapter = parts[0]
                     verse = parts[1]
-                    
-                    # Allocate 60% to chapter, 40% to verse
                     chapter_duration = duration * 0.6
-                    verse_duration = duration * 0.4
-                    
-                    # Add chapter number
                     expanded_timings.append((chapter, start_time, start_time + chapter_duration))
-                    
-                    # Add verse number
                     expanded_timings.append((verse, start_time + chapter_duration, end_time))
                 
-            # Check if this is a standalone number like "99"
             elif numeric_pattern.match(word) and len(word) > 1:
-                # For two-digit numbers, split into tens and ones
-                # For example, "99" would be spoken as "ninety-nine"
+                # Handle numeric values (e.g., "99" -> "ninety" "nine")
                 duration = end_time - start_time
+                num = int(float(word))
                 
-                if int(float(word)) > 20 and int(float(word)) < 100:
-                    # For numbers 21-99, split into two parts (e.g., "twenty" "one")
-                    # Allocate 60% to first part, 40% to second part
-                    first_part_duration = duration * 0.6
-                    second_part_duration = duration * 0.4
+                if 20 < num < 100:
+                    tens_digit = num // 10
+                    ones_digit = num % 10
+                    first_duration = duration * 0.6
                     
-                    # Create a representation of the first and second parts
-                    tens_digit = int(float(word)) // 10
-                    ones_digit = int(float(word)) % 10
-                    
-                    # Add first part (tens)
-                    expanded_timings.append((f"{tens_digit}0", start_time, start_time + first_part_duration))
-                    
-                    # Add second part (ones) if not zero
+                    expanded_timings.append((f"{tens_digit}0", start_time, start_time + first_duration))
                     if ones_digit > 0:
-                        expanded_timings.append((f"{ones_digit}", start_time + first_part_duration, end_time))
+                        expanded_timings.append((f"{ones_digit}", start_time + first_duration, end_time))
                     else:
-                        # Adjust the end time of the first part if there's no second part
                         expanded_timings[-1] = (expanded_timings[-1][0], expanded_timings[-1][1], end_time)
                 else:
-                    # Keep other numbers as is
                     expanded_timings.append((word, start_time, end_time))
             else:
-                # Keep non-numeric references as is
                 expanded_timings.append((word, start_time, end_time))
+            
+            i += 1
         
         return expanded_timings
         
