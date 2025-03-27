@@ -12,9 +12,13 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import time
 
+# Add the project root to the Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+sys.path.insert(0, project_root)
+
 from core.config import Config
-from youtube_client import YouTubeClient
-from sdxl_client import SDXLClient
+from integrations.youtube.client import YouTubeClient
+from media.sdxl_client import SDXLClient
 
 # Configure logging
 logging.basicConfig(
