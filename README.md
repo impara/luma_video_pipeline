@@ -518,6 +518,23 @@ Common functionality is centralized in the `utils` module:
 - Default video FPS: 24
 - Audio format: WAV (44.1kHz)
 
+## Advanced Performance Features
+
+### Memory-Efficient Video Handling
+
+The pipeline uses sophisticated memory management to process videos efficiently:
+
+- **Adaptive Batch Processing**: Dynamically adjusts batch sizes based on current memory usage
+- **Memory Monitoring**: Continuously tracks memory consumption to prevent out-of-memory errors
+- **Hybrid Processing Strategy**:
+  - Uses in-memory processing when memory is available for faster processing
+  - Automatically switches to disk-based processing when memory usage is high
+  - Dynamically adjusts batch size in response to memory pressure
+- **Frame-by-Frame Processing**: Uses generator-based frame processing to avoid loading entire videos into memory
+- **Hardware Acceleration Detection**: Automatically detects and uses available hardware encoding (NVENC, QSV, VAAPI) with fallback to CPU encoding when needed
+
+These features work together to enable processing of large videos even on systems with limited resources, while still taking full advantage of available memory and hardware when possible.
+
 ### Performance-Optimized Encoding
 
 The pipeline uses an intelligent two-tier encoding system for optimal performance:
