@@ -297,7 +297,7 @@ class SDXLClient(MediaClient):
             Path: Path to the downloaded image file
         """
         # Use our utility function
-        return download_image(image_uri, self.DOWNLOAD_DIR)
+        return download_file_to_path(image_uri, self.DOWNLOAD_DIR)
     
     def _analyze_scene(self, prompt: str) -> str:
         """
@@ -727,7 +727,7 @@ class SDXLClient(MediaClient):
                 # Use request_id plus index for multiple images
                 file_id = f"{request_id}_{i}" if len(image_urls) > 1 else request_id
                 try:
-                    image_path = download_image(url, self.DOWNLOAD_DIR, file_id)
+                    image_path = download_file_to_path(url, self.DOWNLOAD_DIR, file_id)
                     image_paths.append(image_path)
                 except Exception as e:
                     logger.error(f"Failed to download image {i} from {url}: {e}")
