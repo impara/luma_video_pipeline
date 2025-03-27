@@ -84,7 +84,7 @@ The pipeline is built with a modular architecture:
 
 ```bash
 git clone <repository-url>
-cd luma_video_pipeline
+cd video_pipeline
 ```
 
 2. Create and activate a virtual environment:
