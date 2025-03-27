@@ -8,6 +8,8 @@ import hashlib
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union, Tuple
+from functools import lru_cache
+from threading import Lock
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,13 +18,14 @@ logger = logging.getLogger(__name__)
 class CacheHandler:
     """Centralized cache handling for media generation clients."""
     
-    def __init__(self, cache_dir: Path, cache_file: str, dev_mode: bool = False):
+    def __init__(self, cache_dir: Path, cache_file: str, dev_mode: bool = False, memory_cache_size: int = 1000):
         """Initialize the cache handler.
         
         Args:
             cache_dir: Directory to store cached files
             cache_file: Name of the cache file
             dev_mode: Whether to operate in development mode
+            memory_cache_size: Maximum number of items to keep in memory cache (default: 1000)
         """
         self.cache_dir = cache_dir
         self.cache_file = cache_dir / cache_file
@@ -30,6 +33,9 @@ class CacheHandler:
         self.cache_dir_abs = self.cache_dir.resolve()
         self.dev_mode = dev_mode
         self.cache = self._load_cache()
+        self.memory_cache = {}
+        self.memory_cache_size = memory_cache_size
+        self.cache_lock = Lock()
     
     def _load_cache(self) -> Dict:
         """Load the cache from disk."""
@@ -51,29 +57,28 @@ class CacheHandler:
         except Exception as e:
             logger.warning(f"Failed to save cache: {e}")
     
-    def get_cache_key(self, params: Dict[str, Any], core_params: List[str]) -> str:
-        """Generate a cache key from the input parameters.
+    @lru_cache(maxsize=100)
+    def get_cache_key(self, *args) -> str:
+        """Generate and cache a cache key from the input parameters.
+        LRU cache is used to avoid recomputing hashes for frequently accessed items.
         
         Args:
-            params: Parameters to generate cache key from
-            core_params: List of core parameter names to include in the key
+            *args: Variable arguments to generate cache key from
             
         Returns:
             String cache key
         """
-        # Normalize prompt (strip whitespace, lowercase)
-        prompt = params.get("prompt", "").strip().lower()
-        
-        # Create key parts with core parameters
-        key_parts = [prompt]
-        for param in core_params:
-            if param in params and param != "prompt":  # Avoid duplicating prompt
-                key_parts.append(str(params.get(param)))
-        
-        # Join all parts and hash
-        key_str = "|".join(key_parts)
+        key_str = "|".join(str(arg) for arg in args)
         return hashlib.md5(key_str.encode()).hexdigest()
-    
+
+    def _manage_memory_cache_size(self):
+        """Remove oldest items from memory cache if it exceeds the maximum size."""
+        if len(self.memory_cache) > self.memory_cache_size:
+            # Remove 10% of the oldest items
+            items_to_remove = int(self.memory_cache_size * 0.1)
+            for _ in range(items_to_remove):
+                self.memory_cache.pop(next(iter(self.memory_cache)))
+
     def get_abs_path(self, rel_path: Union[str, Path]) -> Path:
         """Convert a relative path to absolute path."""
         path = Path(rel_path)
@@ -95,9 +100,9 @@ class CacheHandler:
                 return self.cache_dir / path
             return path
     
-    def get_cached_item(self, params: Dict[str, Any], core_params: List[str], 
-                         item_key: str, check_exact: bool = True) -> Optional[Union[str, List[str]]]:
-        """Check if an item exists in cache for given parameters.
+    def _get_from_disk_cache(self, params: Dict[str, Any], core_params: List[str], 
+                            item_key: str, check_exact: bool = True) -> Optional[Union[str, List[str]]]:
+        """Check if an item exists in disk cache for given parameters.
         
         Args:
             params: Parameters to check against
@@ -108,7 +113,7 @@ class CacheHandler:
         Returns:
             Cached item if found, None otherwise
         """
-        cache_key = self.get_cache_key(params, core_params)
+        cache_key = self.get_cache_key(*(str(params.get(param)) for param in core_params))
         
         # Check if entry exists in cache
         if cache_key in self.cache:
@@ -133,10 +138,54 @@ class CacheHandler:
                     return str(self.get_abs_path(cache_entry[item_key]))
         
         return None
-    
+
+    def get_cached_item(self, params: Dict[str, Any], core_params: List[str], 
+                       item_key: str, check_exact: bool = True) -> Optional[Union[str, List[str]]]:
+        """Check if an item exists in cache for given parameters.
+        First checks memory cache, then falls back to disk cache.
+        
+        Args:
+            params: Parameters to check against
+            core_params: List of core parameter names for cache key generation
+            item_key: Key to look up in the cache entry (e.g., 'file_path', 'file_paths')
+            check_exact: Whether to check for exact match of all params vs just core params
+            
+        Returns:
+            Cached item if found, None otherwise
+        """
+        cache_key = self.get_cache_key(*(str(params.get(param)) for param in core_params))
+        
+        # First check memory cache
+        with self.cache_lock:
+            if cache_key in self.memory_cache:
+                cache_entry = self.memory_cache[cache_key]
+                logger.debug(f"Memory cache hit for key: {cache_key}")
+                
+                if check_exact:
+                    for k, v in params.items():
+                        if k in cache_entry.get('params', {}) and str(cache_entry['params'][k]) != str(v):
+                            if k not in ['seed', 'uuid', 'id']:
+                                return None
+                
+                if item_key in cache_entry:
+                    if isinstance(cache_entry[item_key], list):
+                        return [str(self.get_abs_path(p)) for p in cache_entry[item_key]]
+                    return str(self.get_abs_path(cache_entry[item_key]))
+        
+        # If not in memory cache, check disk cache
+        disk_result = self._get_from_disk_cache(params, core_params, item_key, check_exact)
+        
+        # If found in disk cache, add to memory cache
+        if disk_result is not None:
+            with self.cache_lock:
+                self.memory_cache[cache_key] = self.cache[cache_key]
+                self._manage_memory_cache_size()
+        
+        return disk_result
+
     def add_to_cache(self, params: Dict[str, Any], core_params: List[str], 
-                     result_items: Dict[str, Any]) -> str:
-        """Add an item to the cache.
+                    result_items: Dict[str, Any]) -> str:
+        """Add an item to both memory and disk cache.
         
         Args:
             params: Parameters that were used to generate the item
@@ -146,9 +195,9 @@ class CacheHandler:
         Returns:
             Cache key that was used
         """
-        cache_key = self.get_cache_key(params, core_params)
+        cache_key = self.get_cache_key(*(str(params.get(param)) for param in core_params))
         
-        # Convert all paths to relative paths for storage
+        # Process items for storage
         processed_items = {}
         for k, v in result_items.items():
             if isinstance(v, list) and all(isinstance(x, (str, Path)) for x in v):
@@ -164,9 +213,12 @@ class CacheHandler:
             **processed_items
         }
         
-        # Add to cache and save
-        self.cache[cache_key] = cache_entry
-        self._save_cache()
+        # Add to both memory and disk cache
+        with self.cache_lock:
+            self.memory_cache[cache_key] = cache_entry
+            self._manage_memory_cache_size()
+            self.cache[cache_key] = cache_entry
+            self._save_cache()
         
         return cache_key
     

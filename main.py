@@ -176,15 +176,8 @@ Examples:
         "--youtube-optimized",
         action="store_true",
         dest="youtube_optimized",
-        default=True,
-        help="Optimize video resolution and bitrate for YouTube standards (default: enabled)"
-    )
-    
-    parser.add_argument(
-        "--no-youtube-optimized",
-        action="store_false",
-        dest="youtube_optimized",
-        help="Disable YouTube optimization for faster generation and testing"
+        default=False,
+        help="Optimize video resolution and bitrate for YouTube standards (higher quality, slower processing)"
     )
     
     parser.add_argument(

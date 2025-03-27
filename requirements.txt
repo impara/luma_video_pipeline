@@ -21,3 +21,4 @@ Pillow==10.0.0
 google-genai==1.5.0
 # Logging dependencies
 loguru==0.7.3
+psutil>=5.9.0  # Required for memory monitoring

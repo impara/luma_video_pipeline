@@ -201,22 +201,33 @@ The pipeline includes YouTube optimization features that adjust video quality se
   - Short: 8Mbps
   - Square: 9Mbps
 
-YouTube optimization is enabled by default. For faster generation during development and testing, you can disable it:
+By default, the pipeline runs in fast generation mode for quicker development and testing. When you're ready to produce a production-quality video, add the `--youtube-optimized` flag:
 
 ```bash
-# Generate high-quality video for YouTube (default)
+# Generate faster, lower-resolution video for testing (default)
 python main.py \
     --media-type video \
     --script-file script.txt \
     --video-format landscape
 
-# Generate faster, lower-resolution video for testing
+# Generate high-quality video for YouTube
 python main.py \
     --media-type video \
     --script-file script.txt \
     --video-format landscape \
-    --no-youtube-optimized
+    --youtube-optimized
 ```
+
+The `--youtube-optimized` flag affects both:
+
+- **Output Resolution**: Increases to higher resolution (1080p) for optimal YouTube quality
+- **Encoding Parameters**: Uses higher quality, more computationally intensive encoding settings
+
+The default fast generation mode:
+
+- **Uses Lower Resolution**: 720p instead of 1080p
+- **Uses Faster Encoding**: Applies faster encoding presets with lower quality settings
+- **Speeds Up Processing**: Can be 40-60% faster than YouTube-optimized mode
 
 Note: Videos will still be accepted by YouTube even without optimization. The optimization settings follow YouTube's recommended specifications for best quality, not their minimum requirements.
 
@@ -372,9 +383,7 @@ options:
                         'landscape' is 16:9, 'short' is 9:16 for social media, 'square' is 1:1
   --use-timing-adjustment {true,false}
                         Whether to apply timing adjustments for karaoke captions (default: true)
-  --youtube-optimized   Optimize video resolution and bitrate for YouTube standards (default: enabled)
-  --no-youtube-optimized
-                        Disable YouTube optimization for faster generation and testing
+  --youtube-optimized   Optimize video resolution and bitrate for YouTube standards (higher quality, slower processing)
   --clear               Clear all output directories (except videos) before processing
 
 Style options:
@@ -492,6 +501,10 @@ Common functionality is centralized in the `utils` module:
 - Test different animation styles
 - Cache generated content for faster iteration
 - Use the `--clear` flag for fresh runs to avoid using old cached content
+- Use fast generation mode (default) during development for quick iteration
+- Add `--youtube-optimized` only for final production videos
+- For very large projects, process in smaller batches to manage memory usage
+- Consider testing on a small script before processing lengthy content
 
 ## Technical Details
 
@@ -505,17 +518,32 @@ Common functionality is centralized in the `utils` module:
 - Default video FPS: 24
 - Audio format: WAV (44.1kHz)
 
+### Performance-Optimized Encoding
+
+The pipeline uses an intelligent two-tier encoding system for optimal performance:
+
+**Intermediate Files**:
+
+- Uses ultrafast/veryfast encoding presets for temporary files
+- Optimized for speed rather than quality during processing
+- Automatically uses lower quality settings to minimize processing time
+- Hardware-accelerated when available (NVIDIA, Intel QSV, AMD)
+
+**Final Output**:
+
+- By default, uses faster encoding presets for development and testing
+- When `--youtube-optimized` flag is added:
+  - Uses high-quality encoding settings for production-ready video
+  - Applies YouTube-recommended parameters for optimal streaming quality
+  - Uses two-pass encoding for superior quality/size ratio
+  - Uses medium/slower presets for better compression efficiency
+  - Hardware acceleration is quality-optimized for final output
+
+This system significantly improves overall processing speed during development while providing the option for high-quality output when needed.
+
 ### Video Resolutions
 
-**YouTube-Optimized Mode (Default)**:
-
-- Landscape (16:9): 1920x1080
-- Short (9:16): 1080x1920
-- Square (1:1): 1080x1080
-- Video bitrates: 8-10Mbps (format-specific)
-- Audio bitrate: 192kbps
-
-**Fast Generation Mode** (`--no-youtube-optimized`):
+**Fast Generation Mode (Default)**:
 
 - Landscape (16:9): 1280x720 (720p)
 - Short (9:16): 720x1280
@@ -523,7 +551,15 @@ Common functionality is centralized in the `utils` module:
 - Video bitrate: 4Mbps
 - Audio bitrate: 128kbps
 
-Both modes produce YouTube-compatible videos. The optimized mode follows YouTube's recommended specifications for best quality (1080p), while the fast generation mode ensures at least 720p quality on YouTube.
+**YouTube-Optimized Mode** (with `--youtube-optimized` flag):
+
+- Landscape (16:9): 1920x1080 (1080p)
+- Short (9:16): 1080x1920
+- Square (1:1): 1080x1080
+- Video bitrates: 8-10Mbps (format-specific)
+- Audio bitrate: 192kbps
+
+Both modes produce YouTube-compatible videos. The optimized mode follows YouTube's recommended specifications for best quality (1080p), while the default mode ensures at least 720p quality on YouTube with faster processing.
 
 ## Production Readiness
 

@@ -18,6 +18,7 @@ from PIL import Image
 from core.error_handling import SceneBuilderError, retry_scene_building, MediaGenerationError
 from core.utils import ensure_directory_exists
 from core.config import Config
+from core.memory_utils import FrameGenerator
 from audio.tts import TextToSpeech
 from video.captions import create_caption_clip, add_karaoke_captions_to_video
 from media.client_base import MediaClient
@@ -539,115 +540,35 @@ def animate_image_clip(
     zoom_range: Tuple[float, float] = (1.0, 1.3),
     pan_range: Tuple[float, float] = (-0.1, 0.1)
 ) -> VideoFileClip:
-    """Create an animated video clip from a static image."""
-    # Load the image using PIL first
-    pil_img = Image.open(str(image_path))
-    # Convert to RGB mode if necessary
-    if pil_img.mode != 'RGB':
-        pil_img = pil_img.convert('RGB')
-    # Convert to numpy array
-    img_array = np.array(pil_img)
+    """
+    Create an animated video clip from a static image using memory-efficient generator.
     
-    # Create ImageClip from numpy array
-    img = ImageClip(img_array)
-    
-    # Get dimensions
-    h, w = img_array.shape[:2]
-    logger.info(f"Image dimensions: h={h}, w={w}")
-    
-    # Ensure consistent dimensions for all images 
-    # We'll enforce 16:9 aspect ratio at 1280x720 for all images
-    if h != 720 or w != 1280:
-        logger.info(f"Resizing image from {w}x{h} to 1280x720 for consistency")
-        target_h, target_w = 720, 1280
-        frame_pil = Image.fromarray(img_array)
-        resized_pil = frame_pil.resize((target_w, target_h), Image.Resampling.LANCZOS)
-        img_array = np.array(resized_pil)
-        # Update dimensions
-        h, w = target_h, target_w
-        # Update ImageClip with resized array
-        img = ImageClip(img_array)
-        logger.info(f"Image successfully resized to consistent dimensions: h={h}, w={w}")
-    
-    if animation_style == "ken_burns":
-        # Create a Ken Burns style effect combining zoom and pan
-        def make_frame(t):
-            # Calculate progress (0 to 1)
-            progress = float(t) / float(duration)
-            
-            # Smooth easing function
-            ease = lambda x: 0.5 - np.cos(x * np.pi) / 2
-            smooth_progress = ease(progress)
-            
-            # Calculate current zoom factor
-            zoom = zoom_range[0] + (zoom_range[1] - zoom_range[0]) * smooth_progress
-            
-            # Calculate pan offsets
-            pan_x = pan_range[0] + (pan_range[1] - pan_range[0]) * smooth_progress
-            pan_y = pan_range[0] + (pan_range[1] - pan_range[0]) * smooth_progress
-            
-            # Create zoomed frame using PIL
-            zoomed_h = int(h * zoom)
-            zoomed_w = int(w * zoom)
-            
-            # Resize using PIL
-            frame_pil = Image.fromarray(img_array)
-            zoomed_pil = frame_pil.resize((zoomed_w, zoomed_h), Image.Resampling.LANCZOS)
-            zoomed = np.array(zoomed_pil)
-            
-            # Calculate position adjustments for pan
-            pos_x = int((zoomed_w - w) * (0.5 + pan_x))
-            pos_y = int((zoomed_h - h) * (0.5 + pan_y))
-            
-            # Ensure we don't go out of bounds
-            pos_x = max(0, min(pos_x, zoomed_w - w))
-            pos_y = max(0, min(pos_y, zoomed_h - h))
-            
-            # Extract the visible portion
-            visible_frame = zoomed[pos_y:pos_y + h, pos_x:pos_x + w]
-            
-            return visible_frame
-            
-        # Create video clip with the animation
-        clip = VideoClip(make_frame, duration=duration)
-        logger.info(f"Created Ken Burns clip with duration={duration:.2f}s")
+    Args:
+        image_path: Path to the image file
+        duration: Duration of the animation in seconds
+        animation_style: Type of animation effect
+        zoom_range: Min and max zoom values
+        pan_range: Min and max pan offset values
         
-    elif animation_style == "zoom":
-        # Simple zoom effect
-        def make_frame(t):
-            progress = float(t) / float(duration)
-            zoom = zoom_range[0] + (zoom_range[1] - zoom_range[0]) * progress
-            frame = img.get_frame(0)  # Static image, so time doesn't matter
-            return vfx.resize(frame, zoom)
-            
-        clip = VideoClip(make_frame, duration=duration)
-        
-    elif animation_style == "pan":
-        # Simple pan effect
-        def make_frame(t):
-            progress = float(t) / float(duration)
-            x_offset = w * (pan_range[0] + (pan_range[1] - pan_range[0]) * progress)
-            y_offset = h * (pan_range[0] + (pan_range[1] - pan_range[0]) * progress)
-            
-            # Get the current frame
-            frame = img.get_frame(0)  # Static image, so time doesn't matter
-            
-            # Create larger frame with padding
-            padded = np.pad(frame, ((h, h), (w, w), (0, 0)), mode='edge')
-            
-            # Extract the visible portion
-            start_y = int(h + y_offset)
-            start_x = int(w + x_offset)
-            return padded[start_y:start_y + h, start_x:start_x + w]
-            
-        clip = VideoClip(make_frame, duration=duration)
-        
-    else:
-        # Default to static image if style not recognized
-        logger.warning(f"Unknown animation style: {animation_style}, using static image")
-        clip = img.set_duration(duration)
+    Returns:
+        Animated video clip
+    """
+    logger.info(f"Creating {animation_style} animation for image: {image_path}")
     
-    # Add subtle fade in/out
-    clip = clip.fadein(0.5).fadeout(0.5)
+    # Create a frame generator instead of generating all frames in memory at once
+    frame_gen = FrameGenerator(
+        image_path=image_path,
+        duration=duration,
+        fps=24,  # Standard frame rate
+        animation_style=animation_style,
+        zoom_range=zoom_range,
+        pan_range=pan_range
+    )
+    
+    # Create a custom clip using the frame generator's get_frame_at_time method
+    clip = VideoClip(lambda t: frame_gen.get_frame_at_time(t), duration=duration)
+    
+    # We don't need to add fade effects here as they're handled in the generator
+    logger.info(f"Created memory-efficient animated clip with duration={duration:.2f}s")
     
     return clip 

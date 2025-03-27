@@ -90,7 +90,7 @@ class GeminiClient(MediaClient):
         # Initialize cache handler
         self.cache_handler = CacheHandler(
             cache_dir=self.DOWNLOAD_DIR,
-            cache_file="gemini_cache.json",  # Use a separate cache file for Gemini
+            cache_file="cache_data.json",  # Use a separate cache file for Gemini
             dev_mode=dev_mode
         )
         
