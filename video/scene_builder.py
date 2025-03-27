@@ -20,7 +20,7 @@ from core.utils import ensure_directory_exists
 from core.config import Config
 from core.memory_utils import FrameGenerator
 from audio.tts import TextToSpeech
-from video.captions import create_caption_clip, add_karaoke_captions_to_video
+from video.captions import create_caption_clip, add_karaoke_captions_to_video, overlay_caption_on_video
 from media.client_base import MediaClient
 
 # Configure logging
